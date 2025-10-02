@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: oidc_postgres_dev
+    restart: always
+    environment:
+      POSTGRES_USER: oidc_user
+      POSTGRES_PASSWORD: oidc_password
+      POSTGRES_DB: oidc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
