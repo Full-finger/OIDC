@@ -105,3 +105,62 @@ COMMENT ON COLUMN oauth_refresh_tokens.client_id IS '关联的客户端ID';
 COMMENT ON COLUMN oauth_refresh_tokens.scopes IS '授权的scope列表';
 COMMENT ON COLUMN oauth_refresh_tokens.expires_at IS '过期时间';
 COMMENT ON COLUMN oauth_refresh_tokens.revoked_at IS '撤销时间';
+
+-- 番剧表
+CREATE TABLE animes (
+    id BIGSERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    episode_count INTEGER,
+    director VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 为animes表创建触发器，自动更新updated_at字段
+CREATE TRIGGER trigger_animes_updated_at
+    BEFORE UPDATE ON animes
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 表结构说明注释
+COMMENT ON TABLE animes IS '番剧信息表';
+COMMENT ON COLUMN animes.id IS '番剧ID';
+COMMENT ON COLUMN animes.title IS '番剧名';
+COMMENT ON COLUMN animes.episode_count IS '话数';
+COMMENT ON COLUMN animes.director IS '导演';
+COMMENT ON COLUMN animes.created_at IS '创建时间';
+COMMENT ON COLUMN animes.updated_at IS '更新时间';
+
+-- 用户收藏表
+CREATE TABLE user_collections (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    anime_id BIGINT NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    rating INTEGER CHECK (rating >= 1 AND rating <= 10),
+    comment TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (anime_id) REFERENCES animes(id) ON DELETE CASCADE
+);
+
+-- 为user_collections表创建触发器，自动更新updated_at字段
+CREATE TRIGGER trigger_user_collections_updated_at
+    BEFORE UPDATE ON user_collections
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- 为user_collections表创建唯一索引，防止用户重复收藏同一番剧
+CREATE UNIQUE INDEX idx_user_collections_user_anime ON user_collections(user_id, anime_id);
+
+-- 表结构说明注释
+COMMENT ON TABLE user_collections IS '用户番剧收藏表';
+COMMENT ON COLUMN user_collections.id IS '收藏ID';
+COMMENT ON COLUMN user_collections.user_id IS '用户ID';
+COMMENT ON COLUMN user_collections.anime_id IS '番剧ID';
+COMMENT ON COLUMN user_collections.type IS '收藏类型（想看、在看、已看）';
+COMMENT ON COLUMN user_collections.rating IS '评分（1-10）';
+COMMENT ON COLUMN user_collections.comment IS '评论';
+COMMENT ON COLUMN user_collections.created_at IS '创建时间';
+COMMENT ON COLUMN user_collections.updated_at IS '更新时间';
