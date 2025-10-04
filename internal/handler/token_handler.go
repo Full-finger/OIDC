@@ -109,10 +109,47 @@ func (h *TokenHandler) TokenHandler(c *gin.Context) {
 	switch grantType {
 	case "authorization_code":
 		h.handleAuthorizationCodeGrant(c, client)
+	case "refresh_token":
+		h.handleRefreshTokenGrant(c, client)
 	default:
 		log.Printf("Unsupported grant type: %s", grantType)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_grant_type", "error_description": "Unsupported grant type"})
 	}
+}
+
+func (h *TokenHandler) handleRefreshTokenGrant(c *gin.Context, client *model.Client) {
+	refreshToken := c.Request.Form.Get("refresh_token")
+	
+	log.Printf("Refresh token grant flow. Refresh Token provided: %t", refreshToken != "")
+
+	if refreshToken == "" {
+		log.Printf("Missing refresh token in request")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Missing refresh token"})
+		return
+	}
+
+	// 使用刷新令牌获取新的访问令牌和刷新令牌
+	log.Printf("Refreshing access token with refresh token...")
+	result, err := h.oauthService.RefreshAccessToken(c.Request.Context(), refreshToken)
+	if err != nil {
+		log.Printf("Error refreshing access token: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
+		return
+	}
+
+	log.Printf("Access token refreshed successfully")
+	log.Printf("New access token length: %d", len(result.AccessToken))
+	log.Printf("New refresh token length: %d", len(result.RefreshToken))
+
+	// 返回令牌响应
+	response := map[string]interface{}{
+		"access_token":  result.AccessToken,
+		"refresh_token": result.RefreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    3600,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *TokenHandler) handleAuthorizationCodeGrant(c *gin.Context, client *model.Client) {
@@ -134,20 +171,22 @@ func (h *TokenHandler) handleAuthorizationCodeGrant(c *gin.Context, client *mode
 		return
 	}
 
-	// 验证授权码并兑换访问令牌
-	log.Printf("Exchanging authorization code for access token...")
-	accessToken, err := h.oauthService.ExchangeAuthorizationCode(c.Request.Context(), code, client.ClientID, redirectURI)
+	// 验证授权码并兑换访问令牌和刷新令牌
+	log.Printf("Exchanging authorization code for access token and refresh token...")
+	result, err := h.oauthService.ExchangeAuthorizationCode(c.Request.Context(), code, client.ClientID, redirectURI)
 	if err != nil {
 		log.Printf("Error exchanging authorization code %s: %v", code, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
 		return
 	}
 
-	log.Printf("Access token generated successfully: %s", accessToken)
+	log.Printf("Access token generated successfully: %s", result.AccessToken)
+	log.Printf("Refresh token generated successfully: %s", result.RefreshToken)
 
 	// 返回令牌响应
 	response := map[string]interface{}{
-		"access_token":  accessToken,
+		"access_token":  result.AccessToken,
+		"refresh_token": result.RefreshToken,
 		"token_type":    "Bearer",
 		"expires_in":    3600,
 	}

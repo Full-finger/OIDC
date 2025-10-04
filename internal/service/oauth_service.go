@@ -24,10 +24,13 @@ type OAuthService interface {
 	// AuthorizationCode相关操作
 	GenerateAuthorizationCode(ctx context.Context, clientID string, userID int64, redirectURI string, scopes []string, codeChallenge *string, codeChallengeMethod *string) (*model.AuthorizationCode, error)
 	ValidateAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (*model.AuthorizationCode, error)
-	ExchangeAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (string, error)
+	ExchangeAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (*ExchangeAuthorizationCodeResult, error)
 	
 	// Token相关操作
 	GenerateAccessToken(userID int64) (string, error)
+	GenerateRefreshToken(userID int64) (string, error)
+	CreateRefreshToken(ctx context.Context, userID int64, clientID string, scopes []string) (string, error)
+	RefreshAccessToken(ctx context.Context, refreshTokenString string) (*ExchangeAuthorizationCodeResult, error)
 }
 
 // oauthService 是 OAuthService 接口的实现
@@ -169,15 +172,21 @@ func (s *oauthService) ValidateAuthorizationCode(ctx context.Context, code, clie
 	return authCode, nil
 }
 
-// ExchangeAuthorizationCode 兑换授权码获取访问令牌
-func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (string, error) {
+// ExchangeAuthorizationCodeResult 兑换授权码的结果
+type ExchangeAuthorizationCodeResult struct {
+	AccessToken  string
+	RefreshToken string
+}
+
+// ExchangeAuthorizationCode 兑换授权码获取访问令牌和刷新令牌
+func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (*ExchangeAuthorizationCodeResult, error) {
 	log.Printf("OAuth Service: Exchanging authorization code: %s for client: %s, redirectURI: %s", code, clientID, redirectURI)
 	
 	// 验证授权码
 	authCode, err := s.ValidateAuthorizationCode(ctx, code, clientID, redirectURI)
 	if err != nil {
 		log.Printf("OAuth Service: Failed to validate authorization code: %v", err)
-		return "", err
+		return nil, err
 	}
 	
 	// 生成访问令牌
@@ -185,10 +194,20 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	accessToken, err := s.GenerateAccessToken(authCode.UserID)
 	if err != nil {
 		log.Printf("OAuth Service: Failed to generate access token: %w", err)
-		return "", fmt.Errorf("failed to generate access token: %w", err)
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 	
 	log.Printf("OAuth Service: Generated access token: %s", accessToken)
+	
+	// 生成刷新令牌
+	log.Printf("OAuth Service: Generating refresh token for user: %d", authCode.UserID)
+	refreshToken, err := s.CreateRefreshToken(ctx, authCode.UserID, authCode.ClientID, authCode.Scopes)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to generate refresh token: %v", err)
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	
+	log.Printf("OAuth Service: Generated refresh token: %s", refreshToken)
 	
 	// 删除已使用的授权码（一次性使用）
 	log.Printf("OAuth Service: Deleting used authorization code: %s", code)
@@ -200,7 +219,10 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	}
 	
 	log.Printf("OAuth Service: Authorization code exchanged successfully")
-	return accessToken, nil
+	return &ExchangeAuthorizationCodeResult{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
 // GenerateAccessToken 生成访问令牌
@@ -213,6 +235,50 @@ func (s *oauthService) GenerateAccessToken(userID int64) (string, error) {
 	return token, nil
 }
 
+// GenerateRefreshToken 生成刷新令牌
+func (s *oauthService) GenerateRefreshToken(userID int64) (string, error) {
+	log.Printf("OAuth Service: Generating refresh token for user: %d", userID)
+	token := generateRandomCode(128)
+	log.Printf("OAuth Service: Generated refresh token for user %d: %s", userID, token)
+	return token, nil
+}
+
+// CreateRefreshToken 创建刷新令牌并存储到数据库
+func (s *oauthService) CreateRefreshToken(ctx context.Context, userID int64, clientID string, scopes []string) (string, error) {
+	log.Printf("OAuth Service: Creating refresh token for user: %d, client: %s", userID, clientID)
+	
+	// 生成刷新令牌
+	refreshToken, err := s.GenerateRefreshToken(userID)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to generate refresh token: %v", err)
+		return "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	
+	// 哈希刷新令牌用于存储
+	tokenHash := hashToken(refreshToken)
+	
+	// 创建刷新令牌实体
+	refreshTokenModel := &model.RefreshToken{
+		TokenHash: tokenHash,
+		UserID:    userID,
+		ClientID:  clientID,
+		Scopes:    scopes,
+		ExpiresAt: time.Now().Add(24 * time.Hour * 30), // 30天有效期
+		RevokedAt: nil,
+	}
+	
+	// 保存到数据库
+	log.Printf("OAuth Service: Saving refresh token to database")
+	err = s.oauthRepo.CreateRefreshToken(ctx, refreshTokenModel)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to save refresh token: %v", err)
+		return "", fmt.Errorf("failed to save refresh token: %w", err)
+	}
+	
+	log.Printf("OAuth Service: Refresh token saved successfully")
+	return refreshToken, nil
+}
+
 // hashSecret 对密钥进行哈希处理
 func hashSecret(secret string) string {
 	// 简化实现，实际项目中应该使用bcrypt等安全的哈希算法
@@ -221,6 +287,12 @@ func hashSecret(secret string) string {
 	result := base64.StdEncoding.EncodeToString(hash[:])
 	log.Printf("OAuth Service: Secret hash result: %s", result[:min(10, len(result))])
 	return result
+}
+
+// hashToken 对令牌进行哈希处理
+func hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return base64.StdEncoding.EncodeToString(hash[:])
 }
 
 // generateRandomCode 生成指定长度的随机码
@@ -280,4 +352,71 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// RefreshAccessToken 使用刷新令牌获取新的访问令牌和刷新令牌
+func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshTokenString string) (*ExchangeAuthorizationCodeResult, error) {
+	log.Printf("OAuth Service: Refreshing access token with refresh token")
+	
+	// 哈希传入的刷新令牌以进行数据库查找
+	tokenHash := hashToken(refreshTokenString)
+	
+	// 查找刷新令牌
+	log.Printf("OAuth Service: Finding refresh token in database")
+	refreshToken, err := s.oauthRepo.FindRefreshTokenByTokenHash(ctx, tokenHash)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to find refresh token: %v", err)
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
+	}
+	
+	// 验证刷新令牌是否属于有效状态（未过期且未被撤销）
+	// 注意：FindRefreshTokenByTokenHash已经检查了过期和撤销状态
+	
+	// 生成新的访问令牌
+	log.Printf("OAuth Service: Generating new access token for user: %d", refreshToken.UserID)
+	accessToken, err := s.GenerateAccessToken(refreshToken.UserID)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to generate access token: %v", err)
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
+	}
+	
+	// 生成新的刷新令牌
+	log.Printf("OAuth Service: Generating new refresh token for user: %d", refreshToken.UserID)
+	newRefreshToken, err := s.GenerateRefreshToken(refreshToken.UserID)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to generate new refresh token: %v", err)
+		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	
+	// 撤销旧的刷新令牌
+	log.Printf("OAuth Service: Revoking old refresh token")
+	err = s.oauthRepo.RevokeRefreshToken(ctx, tokenHash)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to revoke old refresh token: %v", err)
+		// 这里我们记录错误但不中断流程，因为令牌已经使用过了
+	}
+	
+	// 存储新的刷新令牌
+	log.Printf("OAuth Service: Creating new refresh token record")
+	newTokenHash := hashToken(newRefreshToken)
+	newRefreshTokenModel := &model.RefreshToken{
+		TokenHash: newTokenHash,
+		UserID:    refreshToken.UserID,
+		ClientID:  refreshToken.ClientID,
+		Scopes:    refreshToken.Scopes,
+		ExpiresAt: time.Now().Add(24 * time.Hour * 30), // 30天有效期
+		RevokedAt: nil,
+	}
+	
+	err = s.oauthRepo.CreateRefreshToken(ctx, newRefreshTokenModel)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to save new refresh token: %v", err)
+		return nil, fmt.Errorf("failed to save new refresh token: %w", err)
+	}
+	
+	log.Printf("OAuth Service: Access token refreshed successfully")
+	return &ExchangeAuthorizationCodeResult{
+		AccessToken:  accessToken,
+		RefreshToken: newRefreshToken,
+	}, nil
 }
