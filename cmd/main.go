@@ -43,6 +43,8 @@ func main() {
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(oauthService)
 	tokenHandler := handler.NewTokenHandler(oauthService)
+	userinfoHandler := handler.NewUserInfoHandler(userService, oauthService)
+	discoveryHandler := handler.NewDiscoveryHandler()
 
 	// 3. 设置 Gin 路由
 	r := gin.Default()
@@ -55,6 +57,9 @@ func main() {
 		log.Printf("Remote IP: %s", c.ClientIP())
 		c.Next()
 	})
+
+	// OpenID Connect Discovery 端点
+	r.GET("/.well-known/openid-configuration", discoveryHandler.GetDiscovery)
 
 	// 公共路由（无需认证）
 	public := r.Group("/api/v1")
@@ -73,6 +78,9 @@ func main() {
 		oauth.GET("/authorize", authHandler.AuthorizeHandler)
 		oauth.POST("/authorize", middleware.JWTAuthMiddleware(), authHandler.AuthorizePostHandler)
 		oauth.POST("/token", tokenHandler.TokenHandler)
+		// OIDC UserInfo端点
+		oauth.GET("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
+		oauth.POST("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
 	}
 
 	// 添加简单的登录页面路由
@@ -202,8 +210,8 @@ func initDB() *sql.DB {
 	if err := db.Ping(); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
+	log.Println("Database connection established")
 
-	log.Println("Database connected successfully")
 	return db
 }
 

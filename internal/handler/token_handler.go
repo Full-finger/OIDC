@@ -140,13 +140,25 @@ func (h *TokenHandler) handleRefreshTokenGrant(c *gin.Context, client *model.Cli
 	log.Printf("Access token refreshed successfully")
 	log.Printf("New access token length: %d", len(result.AccessToken))
 	log.Printf("New refresh token length: %d", len(result.RefreshToken))
+	if result.IDToken != "" {
+		log.Printf("New ID token generated successfully")
+	}
 
 	// 返回令牌响应
 	response := map[string]interface{}{
 		"access_token":  result.AccessToken,
-		"refresh_token": result.RefreshToken,
 		"token_type":    "Bearer",
 		"expires_in":    3600,
+	}
+	
+	// 只有当刷新令牌存在时才添加到响应中
+	if result.RefreshToken != "" {
+		response["refresh_token"] = result.RefreshToken
+	}
+	
+	// 只有当ID Token存在时才添加到响应中
+	if result.IDToken != "" {
+		response["id_token"] = result.IDToken
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -182,13 +194,25 @@ func (h *TokenHandler) handleAuthorizationCodeGrant(c *gin.Context, client *mode
 
 	log.Printf("Access token generated successfully: %s", result.AccessToken)
 	log.Printf("Refresh token generated successfully: %s", result.RefreshToken)
+	if result.IDToken != "" {
+		log.Printf("ID token generated successfully: %s", result.IDToken)
+	}
 
 	// 返回令牌响应
 	response := map[string]interface{}{
 		"access_token":  result.AccessToken,
-		"refresh_token": result.RefreshToken,
 		"token_type":    "Bearer",
 		"expires_in":    3600,
+	}
+	
+	// 只有当刷新令牌存在时才添加到响应中
+	if result.RefreshToken != "" {
+		response["refresh_token"] = result.RefreshToken
+	}
+	
+	// 只有当ID Token存在时才添加到响应中
+	if result.IDToken != "" {
+		response["id_token"] = result.IDToken
 	}
 
 	c.JSON(http.StatusOK, response)

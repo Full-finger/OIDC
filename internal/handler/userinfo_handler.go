@@ -12,14 +12,14 @@ import (
 
 // UserInfoHandler 处理 /userinfo 端点请求
 type UserInfoHandler struct {
-	userService service.UserService
+	userService  *service.UserService
 	oauthService service.OAuthService
 }
 
 // NewUserInfoHandler 创建一个新的 UserInfoHandler 实例
-func NewUserInfoHandler(userService service.UserService, oauthService service.OAuthService) *UserInfoHandler {
+func NewUserInfoHandler(userService *service.UserService, oauthService service.OAuthService) *UserInfoHandler {
 	return &UserInfoHandler{
-		userService: userService,
+		userService:  userService,
 		oauthService: oauthService,
 	}
 }

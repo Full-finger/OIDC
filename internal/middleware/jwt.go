@@ -12,7 +12,8 @@ import (
 
 // JWTClaims 自定义JWT声明
 type JWTClaims struct {
-	UserID int64 `json:"user_id"`
+	UserID int64    `json:"user_id"`
+	Scopes []string `json:"scopes,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -53,8 +54,9 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// 将用户ID存储到上下文中
+		// 将用户ID和scopes存储到上下文中
 		c.Set("userID", claims.UserID)
+		c.Set("scopes", claims.Scopes)
 		c.Next()
 	}
 }
@@ -65,4 +67,29 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// ContainsScope 检查scopes数组是否包含指定的scope
+func ContainsScope(scopes []string, scope string) bool {
+	for _, s := range scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsOpenIDScope 检查scopes数组是否包含openid scope
+func ContainsOpenIDScope(scopes []string) bool {
+	return ContainsScope(scopes, "openid")
+}
+
+// ContainsProfileScope 检查scopes数组是否包含profile scope
+func ContainsProfileScope(scopes []string) bool {
+	return ContainsScope(scopes, "profile") || ContainsScope(scopes, "openid") // openid通常也包含基本profile信息
+}
+
+// ContainsEmailScope 检查scopes数组是否包含email scope
+func ContainsEmailScope(scopes []string) bool {
+	return ContainsScope(scopes, "email")
 }
