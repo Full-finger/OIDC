@@ -9,10 +9,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
+	"github.com/Full-finger/OIDC/internal/middleware"
 	"github.com/Full-finger/OIDC/internal/model"
 	"github.com/Full-finger/OIDC/internal/repository"
+	"github.com/Full-finger/OIDC/internal/utils"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // OAuthService 定义OAuth相关业务逻辑接口
@@ -27,7 +31,7 @@ type OAuthService interface {
 	ExchangeAuthorizationCode(ctx context.Context, code, clientID, redirectURI string) (*ExchangeAuthorizationCodeResult, error)
 	
 	// Token相关操作
-	GenerateAccessToken(userID int64) (string, error)
+	GenerateAccessToken(userID int64, scopes []string) (string, error)
 	GenerateRefreshToken(userID int64) (string, error)
 	CreateRefreshToken(ctx context.Context, userID int64, clientID string, scopes []string) (string, error)
 	RefreshAccessToken(ctx context.Context, refreshTokenString string) (*ExchangeAuthorizationCodeResult, error)
@@ -176,6 +180,7 @@ func (s *oauthService) ValidateAuthorizationCode(ctx context.Context, code, clie
 type ExchangeAuthorizationCodeResult struct {
 	AccessToken  string
 	RefreshToken string
+	IDToken      string // OIDC ID Token
 }
 
 // ExchangeAuthorizationCode 兑换授权码获取访问令牌和刷新令牌
@@ -191,7 +196,7 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	
 	// 生成访问令牌
 	log.Printf("OAuth Service: Generating access token for user: %d", authCode.UserID)
-	accessToken, err := s.GenerateAccessToken(authCode.UserID)
+	accessToken, err := s.GenerateAccessToken(authCode.UserID, authCode.Scopes)
 	if err != nil {
 		log.Printf("OAuth Service: Failed to generate access token: %w", err)
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
@@ -209,6 +214,21 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	
 	log.Printf("OAuth Service: Generated refresh token: %s", refreshToken)
 	
+	// 检查是否需要生成ID Token (检查scopes中是否包含openid)
+	var idToken string
+	for _, scope := range authCode.Scopes {
+		if scope == "openid" {
+			log.Printf("OAuth Service: openid scope found, generating ID token")
+			idToken, err = s.GenerateIDToken(ctx, authCode.UserID, authCode.ClientID, authCode.Scopes, nil) // TODO: 从authCode中获取nonce
+			if err != nil {
+				log.Printf("OAuth Service: Failed to generate ID token: %v", err)
+				return nil, fmt.Errorf("failed to generate ID token: %w", err)
+			}
+			log.Printf("OAuth Service: Generated ID token: %s", idToken)
+			break
+		}
+	}
+	
 	// 删除已使用的授权码（一次性使用）
 	log.Printf("OAuth Service: Deleting used authorization code: %s", code)
 	err = s.oauthRepo.DeleteAuthorizationCode(ctx, code)
@@ -222,17 +242,40 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	return &ExchangeAuthorizationCodeResult{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		IDToken:      idToken,
 	}, nil
 }
 
 // GenerateAccessToken 生成访问令牌
-func (s *oauthService) GenerateAccessToken(userID int64) (string, error) {
+func (s *oauthService) GenerateAccessToken(userID int64, scopes []string) (string, error) {
 	log.Printf("OAuth Service: Generating access token for user: %d", userID)
-	// 这里简化实现，实际项目中应该使用JWT库生成标准的JWT令牌
-	// 并包含用户ID、过期时间等信息
-	token := generateRandomCode(128)
-	log.Printf("OAuth Service: Generated access token for user %d: %s", userID, token)
-	return token, nil
+	
+	// 从环境变量获取JWT密钥，如果没有则使用默认值
+	jwtSecret := getEnv("JWT_SECRET", "default_secret_key")
+	
+	// 创建token声明
+	claims := &middleware.JWTClaims{
+		UserID: userID,
+		Scopes: scopes,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)), // 1小时过期
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+		},
+	}
+	
+	// 创建token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	
+	// 签名token
+	tokenString, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		log.Printf("OAuth Service: Failed to sign access token: %v", err)
+		return "", fmt.Errorf("failed to sign access token: %w", err)
+	}
+	
+	log.Printf("OAuth Service: Generated access token for user %d: %s", userID, tokenString)
+	return tokenString, nil
 }
 
 // GenerateRefreshToken 生成刷新令牌
@@ -354,6 +397,60 @@ func min(a, b int) int {
 	return b
 }
 
+// GenerateIDToken 生成OIDC ID Token
+func (s *oauthService) GenerateIDToken(ctx context.Context, userID int64, clientID string, scopes []string, nonce *string) (string, error) {
+	log.Printf("OAuth Service: Generating ID token for user: %d, client: %s", userID, clientID)
+	
+	// 检查是否包含openid scope
+	hasOpenIDScope := false
+	for _, scope := range scopes {
+		if scope == "openid" {
+			hasOpenIDScope = true
+			break
+		}
+	}
+	
+	// 如果不包含openid scope，则不生成ID token
+	if !hasOpenIDScope {
+		log.Printf("OAuth Service: openid scope not requested, skipping ID token generation")
+		return "", nil
+	}
+	
+	// 获取用户信息
+	user, err := s.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to find user: %v", err)
+		return "", fmt.Errorf("failed to find user: %w", err)
+	}
+	
+	// 获取客户端信息
+	client, err := s.oauthRepo.FindClientByClientID(ctx, clientID)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to find client: %v", err)
+		return "", fmt.Errorf("failed to find client: %w", err)
+	}
+	
+	// 使用辅助函数生成ID Token
+	idToken, err := utils.GenerateIDToken(user, &model.Client{
+		ClientID: client.ClientID,
+	}, nonce, scopes)
+	if err != nil {
+		log.Printf("OAuth Service: Failed to generate ID token: %v", err)
+		return "", fmt.Errorf("failed to generate ID token: %w", err)
+	}
+	
+	log.Printf("OAuth Service: Generated ID token for user %d: %s", userID, idToken)
+	return idToken, nil
+}
+
+// getEnv 获取环境变量，如果不存在则使用默认值
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // RefreshAccessToken 使用刷新令牌获取新的访问令牌和刷新令牌
 func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshTokenString string) (*ExchangeAuthorizationCodeResult, error) {
 	log.Printf("OAuth Service: Refreshing access token with refresh token")
@@ -374,7 +471,7 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshTokenStrin
 	
 	// 生成新的访问令牌
 	log.Printf("OAuth Service: Generating new access token for user: %d", refreshToken.UserID)
-	accessToken, err := s.GenerateAccessToken(refreshToken.UserID)
+	accessToken, err := s.GenerateAccessToken(refreshToken.UserID, refreshToken.Scopes)
 	if err != nil {
 		log.Printf("OAuth Service: Failed to generate access token: %v", err)
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
@@ -386,6 +483,21 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshTokenStrin
 	if err != nil {
 		log.Printf("OAuth Service: Failed to generate new refresh token: %v", err)
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+	
+	// 检查是否需要生成ID Token (检查scopes中是否包含openid)
+	var idToken string
+	for _, scope := range refreshToken.Scopes {
+		if scope == "openid" {
+			log.Printf("OAuth Service: openid scope found in refresh token, generating new ID token")
+			idToken, err = s.GenerateIDToken(ctx, refreshToken.UserID, refreshToken.ClientID, refreshToken.Scopes, nil)
+			if err != nil {
+				log.Printf("OAuth Service: Failed to generate ID token: %v", err)
+				return nil, fmt.Errorf("failed to generate ID token: %w", err)
+			}
+			log.Printf("OAuth Service: Generated ID token: %s", idToken)
+			break
+		}
 	}
 	
 	// 撤销旧的刷新令牌
@@ -418,5 +530,6 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshTokenStrin
 	return &ExchangeAuthorizationCodeResult{
 		AccessToken:  accessToken,
 		RefreshToken: newRefreshToken,
+		IDToken:      idToken,
 	}, nil
 }
