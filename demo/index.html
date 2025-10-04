@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>番剧收藏夹 - Bangumi Collection</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入字体图标库，用于收藏和登录图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+</head>
+<body>
+
+    <!-- 顶部标题栏 -->
+    <header class="main-header">
+        <div class="header-content">
+            <h1 class="logo">
+                <i class="fas fa-play-circle"></i>
+                番剧收藏夹
+            </h1>
+            <nav class="nav-links">
+                <a href="#" class="nav-link">发现</a>
+                <a href="#" class="nav-link">我的收藏</a>
+                <button id="login-btn" class="login-btn">
+                    <i class="fas fa-user"></i>
+                    登录 / 注册
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- 主内容区 - 瀑布流容器 -->
+    <main class="main-content">
+        <div id="waterfall-container" class="waterfall-container">
+            <!-- 番剧卡片将由JS动态生成 -->
+        </div>
+        <div id="loading-indicator" class="loading-indicator" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i> 加载中...
+        </div>
+    </main>
+
+    <!-- 弹窗容器 -->
+    <div id="modal-container"></div>
+
+    <!-- index.html (在 body 标签末尾添加) -->
+
+<!-- 评价弹窗 -->
+<div id="rating-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" id="close-rating-modal">&times;</span>
+        <h2>评价番剧</h2>
+        <div class="modal-body">
+            <h3 id="rating-bangumi-title">番剧标题</h3>
+            <div class="star-rating">
+                <input type="radio" id="star5" name="rating" value="5"><label for="star5">★</label>
+                <input type="radio" id="star4" name="rating" value="4"><label for="star4">★</label>
+                <input type="radio" id="star3" name="rating" value="3"><label for="star3">★</label>
+                <input type="radio" id="star2" name="rating" value="2"><label for="star2">★</label>
+                <input type="radio" id="star1" name="rating" value="1"><label for="star1">★</label>
+            </div>
+            <textarea id="rating-comment" placeholder="写下你的观后感..."></textarea>
+            <div class="rating-options">
+                <label>
+                    <input type="checkbox" id="rating-public"> 公开给好友
+                </label>
+            </div>
+            <button id="submit-rating">提交评价</button>
+        </div>
+    </div>
+</div>
+
+<!-- 登录/注册弹窗 -->
+<div id="auth-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" id="close-auth-modal">&times;</span>
+        <div class="auth-container">
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="login">登录</button>
+                <button class="tab-btn" data-tab="register">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <form id="login-form" class="auth-form active">
+                <h2>欢迎回来</h2>
+                <input type="text" placeholder="用户名 / 邮箱" required>
+                <input type="password" placeholder="密码" required>
+                <button type="submit">登录</button>
+            </form>
+
+            <!-- 注册表单 -->
+            <form id="register-form" class="auth-form">
+                <h2>创建新账户</h2>
+                <input type="text" placeholder="用户名" required>
+                <input type="email" placeholder="邮箱" required>
+                <input type="password" placeholder="密码" required>
+                <input type="password" placeholder="确认密码" required>
+                <button type="submit">注册</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+    <!-- 引入JS文件 -->
+    <script src="script.js"></script>
+</body>
+</html>
