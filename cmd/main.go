@@ -39,10 +39,12 @@ func main() {
 	oauthRepo := repository.NewOAuthRepository(db)
 	animeRepo := repository.NewAnimeRepository(db)
 	collectionRepo := repository.NewCollectionRepository(db)
+	bangumiRepo := repository.NewBangumiRepository(db)
 	userService := service.NewUserService(userRepo)
 	oauthService := service.NewOAuthService(oauthRepo, userRepo)
 	animeService := service.NewAnimeService(animeRepo)
 	collectionService := service.NewCollectionService(collectionRepo)
+	bangumiService := service.NewBangumiService(bangumiRepo, animeService, collectionService)
 	
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(oauthService)
@@ -51,6 +53,7 @@ func main() {
 	discoveryHandler := handler.NewDiscoveryHandler()
 	animeHandler := handler.NewAnimeHandler(animeService)
 	collectionHandler := handler.NewCollectionHandler(collectionService)
+	bangumiHandler := handler.NewBangumiHandler(bangumiService)
 
 	// 3. 设置 Gin 路由
 	r := gin.Default()
@@ -106,6 +109,17 @@ func main() {
 		me.POST("/collections", collectionHandler.UpsertCollection)              // 添加或更新收藏
 		me.GET("/collections", collectionHandler.ListCollections)                // 获取用户收藏列表（支持筛选）
 		me.DELETE("/collections/:anime_id", collectionHandler.DeleteCollectionByAnimeID)  // 删除指定番剧的收藏
+		me.POST("/bangumi/bind", bangumiHandler.BindBangumiAccount)              // 绑定Bangumi账号
+		me.GET("/bangumi/binding", bangumiHandler.GetBangumiBinding)             // 获取Bangumi绑定信息
+		me.DELETE("/bangumi/unbind", bangumiHandler.UnbindBangumiAccount)        // 解绑Bangumi账号
+		me.POST("/bangumi/sync", bangumiHandler.SyncBangumiData)                 // 同步Bangumi数据
+	}
+	
+	// Bangumi OAuth回调路由（不需要JWT认证，但需要用户登录）
+	bangumiCallback := r.Group("/api/v1/bangumi/callback")
+	bangumiCallback.Use(middleware.JWTAuthMiddleware())
+	{
+		bangumiCallback.GET("", bangumiHandler.BangumiBindCallback)              // Bangumi OAuth回调
 	}
 	
 	// 保持原有的收藏路由以向后兼容

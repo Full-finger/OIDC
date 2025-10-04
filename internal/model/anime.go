@@ -25,3 +25,15 @@ type UserCollection struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
 }
+
+// UserBangumiBinding 用户Bangumi账号绑定模型
+type UserBangumiBinding struct {
+	ID              int64     `json:"id" db:"id"`
+	UserID          int64     `json:"user_id" db:"user_id"`
+	BangumiUserID   int64     `json:"bangumi_user_id" db:"bangumi_user_id"`
+	AccessToken     string    `json:"-" db:"access_token"`
+	RefreshToken    *string   `json:"-" db:"refresh_token"`
+	TokenExpiresAt  time.Time `json:"token_expires_at" db:"token_expires_at"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}
