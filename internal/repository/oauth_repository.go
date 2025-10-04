@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"time"
 
@@ -24,6 +25,11 @@ type OAuthRepository interface {
 	FindAuthorizationCode(ctx context.Context, code string) (*model.AuthorizationCode, error)
 	DeleteAuthorizationCode(ctx context.Context, code string) error
 	DeleteExpiredAuthorizationCodes(ctx context.Context) error
+	
+	// RefreshToken相关操作
+	CreateRefreshToken(ctx context.Context, refreshToken *model.RefreshToken) error
+	FindRefreshTokenByTokenHash(ctx context.Context, tokenHash string) (*model.RefreshToken, error)
+	RevokeRefreshToken(ctx context.Context, tokenHash string) error
 }
 
 // oauthRepository 是 OAuthRepository 接口的 database/sql 实现
@@ -217,4 +223,108 @@ func (r *oauthRepository) DeleteExpiredAuthorizationCodes(ctx context.Context) e
 	
 	log.Printf("OAuth Repository: Expired authorization codes deleted successfully")
 	return err
+}
+
+// CreateRefreshToken 创建新的刷新令牌
+func (r *oauthRepository) CreateRefreshToken(ctx context.Context, refreshToken *model.RefreshToken) error {
+	log.Printf("OAuth Repository: Creating refresh token for user: %d, client: %s", refreshToken.UserID, refreshToken.ClientID)
+	const query = `
+		INSERT INTO oauth_refresh_tokens (
+			token_hash, user_id, client_id, scopes, expires_at, revoked_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6
+		)
+		RETURNING id`
+
+	err := r.db.QueryRowContext(ctx, query,
+		refreshToken.TokenHash,
+		refreshToken.UserID,
+		refreshToken.ClientID,
+		pq.Array(refreshToken.Scopes),
+		refreshToken.ExpiresAt,
+		refreshToken.RevokedAt,
+	).Scan(&refreshToken.ID)
+	
+	if err != nil {
+		log.Printf("OAuth Repository: Failed to create refresh token: %v", err)
+		return err
+	}
+	
+	log.Printf("OAuth Repository: Refresh token created successfully with ID: %d", refreshToken.ID)
+	return err
+}
+
+// FindRefreshTokenByTokenHash 根据token哈希查找刷新令牌
+func (r *oauthRepository) FindRefreshTokenByTokenHash(ctx context.Context, tokenHash string) (*model.RefreshToken, error) {
+	log.Printf("OAuth Repository: Finding refresh token by hash: %s", tokenHash[:min(10, len(tokenHash))])
+	const query = `
+		SELECT 
+			id, token_hash, user_id, client_id, scopes, expires_at, revoked_at
+		FROM oauth_refresh_tokens 
+		WHERE token_hash = $1 LIMIT 1`
+
+	refreshToken := &model.RefreshToken{}
+	var scopes pq.StringArray
+	var revokedAt *time.Time
+	
+	err := r.db.QueryRowContext(ctx, query, tokenHash).Scan(
+		&refreshToken.ID,
+		&refreshToken.TokenHash,
+		&refreshToken.UserID,
+		&refreshToken.ClientID,
+		&scopes,
+		&refreshToken.ExpiresAt,
+		&revokedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("OAuth Repository: Refresh token not found: %s", tokenHash[:min(10, len(tokenHash))])
+			return nil, sql.ErrNoRows
+		}
+		log.Printf("OAuth Repository: Error finding refresh token: %v", err)
+		return nil, err
+	}
+	
+	// 转换 pq.StringArray 到 []string
+	refreshToken.Scopes = []string(scopes)
+	refreshToken.RevokedAt = revokedAt
+	
+	// 检查令牌是否已撤销
+	if refreshToken.RevokedAt != nil {
+		log.Printf("OAuth Repository: Refresh token has been revoked: %s", tokenHash[:min(10, len(tokenHash))])
+		return nil, fmt.Errorf("refresh token has been revoked")
+	}
+	
+	// 检查令牌是否已过期
+	if time.Now().After(refreshToken.ExpiresAt) {
+		log.Printf("OAuth Repository: Refresh token has expired: %s", tokenHash[:min(10, len(tokenHash))])
+		return nil, fmt.Errorf("refresh token has expired")
+	}
+	
+	log.Printf("OAuth Repository: Found refresh token for user: %d, client: %s", refreshToken.UserID, refreshToken.ClientID)
+
+	return refreshToken, nil
+}
+
+// RevokeRefreshToken 撤销刷新令牌
+func (r *oauthRepository) RevokeRefreshToken(ctx context.Context, tokenHash string) error {
+	log.Printf("OAuth Repository: Revoking refresh token: %s", tokenHash[:min(10, len(tokenHash))])
+	const query = `UPDATE oauth_refresh_tokens SET revoked_at = $1 WHERE token_hash = $2`
+
+	_, err := r.db.ExecContext(ctx, query, time.Now(), tokenHash)
+	if err != nil {
+		log.Printf("OAuth Repository: Failed to revoke refresh token: %v", err)
+		return err
+	}
+	
+	log.Printf("OAuth Repository: Refresh token revoked successfully")
+	return err
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

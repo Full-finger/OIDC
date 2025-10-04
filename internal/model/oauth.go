@@ -49,3 +49,14 @@ type AuthorizationCode struct {
 	CodeChallenge       *string   `db:"code_challenge"`
 	CodeChallengeMethod *string   `db:"code_challenge_method"`
 }
+
+// RefreshToken represents an OAuth refresh token.
+type RefreshToken struct {
+	ID          int64     `db:"id"`
+	TokenHash   string    `db:"token_hash"`
+	UserID      int64     `db:"user_id"`
+	ClientID    string    `db:"client_id"`
+	Scopes      []string  `db:"scopes"`
+	ExpiresAt   time.Time `db:"expires_at"`
+	RevokedAt   *time.Time `db:"revoked_at"`
+}
