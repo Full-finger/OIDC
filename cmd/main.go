@@ -37,14 +37,20 @@ func main() {
 	// 2. 初始化各层依赖
 	userRepo := repository.NewUserRepository(db)
 	oauthRepo := repository.NewOAuthRepository(db)
+	animeRepo := repository.NewAnimeRepository(db)
+	collectionRepo := repository.NewCollectionRepository(db)
 	userService := service.NewUserService(userRepo)
 	oauthService := service.NewOAuthService(oauthRepo, userRepo)
+	animeService := service.NewAnimeService(animeRepo)
+	collectionService := service.NewCollectionService(collectionRepo)
 	
 	userHandler := handler.NewUserHandler(userService)
 	authHandler := handler.NewAuthHandler(oauthService)
 	tokenHandler := handler.NewTokenHandler(oauthService)
 	userinfoHandler := handler.NewUserInfoHandler(userService, oauthService)
 	discoveryHandler := handler.NewDiscoveryHandler()
+	animeHandler := handler.NewAnimeHandler(animeService)
+	collectionHandler := handler.NewCollectionHandler(collectionService)
 
 	// 3. 设置 Gin 路由
 	r := gin.Default()
@@ -81,6 +87,36 @@ func main() {
 		// OIDC UserInfo端点
 		oauth.GET("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
 		oauth.POST("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
+	}
+
+	// 番剧管理路由（需要管理员权限）
+	animes := r.Group("/api/v1/animes")
+	{
+		animes.POST("", middleware.JWTAuthMiddleware(), animeHandler.CreateAnime)              // 创建番剧（管理员）
+		animes.GET("/:id", middleware.JWTAuthMiddleware(), animeHandler.GetAnime)              // 获取番剧详情
+		animes.GET("", animeHandler.ListAnimes)                                                // 获取番剧列表（公开）
+		animes.PUT("/:id", middleware.JWTAuthMiddleware(), animeHandler.UpdateAnime)           // 更新番剧（管理员）
+		animes.DELETE("/:id", middleware.JWTAuthMiddleware(), animeHandler.DeleteAnime)        // 删除番剧（管理员）
+	}
+
+	// 用户收藏路由 (新的API路径)
+	me := r.Group("/api/v1/me")
+	me.Use(middleware.JWTAuthMiddleware())
+	{
+		me.POST("/collections", collectionHandler.UpsertCollection)              // 添加或更新收藏
+		me.GET("/collections", collectionHandler.ListCollections)                // 获取用户收藏列表（支持筛选）
+		me.DELETE("/collections/:anime_id", collectionHandler.DeleteCollectionByAnimeID)  // 删除指定番剧的收藏
+	}
+	
+	// 保持原有的收藏路由以向后兼容
+	collections := r.Group("/api/v1/collections")
+	collections.Use(middleware.JWTAuthMiddleware())
+	{
+		collections.POST("", collectionHandler.CreateCollection)           // 创建收藏
+		collections.GET("/:id", collectionHandler.GetCollection)           // 获取收藏详情
+		collections.GET("", collectionHandler.ListCollections)             // 获取用户收藏列表
+		collections.PUT("/:id", collectionHandler.UpdateCollection)        // 更新收藏
+		collections.DELETE("/:id", collectionHandler.DeleteCollection)     // 删除收藏
 	}
 
 	// 添加简单的登录页面路由
