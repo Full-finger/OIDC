@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banggumoe - Bangumi番组计划</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+</head>
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="main-header">
+        <div class="header-content">
+            <h1 class="logo">
+                <i class="fas fa-play-circle"></i>
+                Banggumoe
+            </h1>
+            <nav class="nav-links">
+                <a href="#" class="nav-link active" data-tab="home">首页</a>
+                <a href="#" class="nav-link" data-tab="collections">我的收藏</a>
+                <a href="#" class="nav-link" data-tab="bangumi">Bangumi绑定</a>
+                <button id="login-btn" class="login-btn">
+                    <i class="fas fa-user"></i>
+                    <span id="user-status">登录 / 注册</span>
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <!-- 首页内容 -->
+        <section id="home-section" class="content-section active">
+            <h2>欢迎使用 Banggumoe</h2>
+            <p>这是一个集成了 Bangumi 番组计划功能的番剧收藏平台。</p>
+            
+            <div class="feature-cards">
+                <div class="feature-card">
+                    <i class="fas fa-heart fa-2x"></i>
+                    <h3>番剧收藏</h3>
+                    <p>收藏您喜欢的番剧，记录观看状态</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-sync-alt fa-2x"></i>
+                    <h3>数据同步</h3>
+                    <p>与 Bangumi 番组计划账户同步数据</p>
+                </div>
+                <div class="feature-card">
+                    <i class="fas fa-star fa-2x"></i>
+                    <h3>评分评论</h3>
+                    <p>为番剧评分并留下您的评论</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 我的收藏内容 -->
+        <section id="collections-section" class="content-section">
+            <div class="section-header">
+                <h2>我的收藏</h2>
+                <button id="sync-collections-btn" class="btn btn-secondary">
+                    <i class="fas fa-sync"></i> 同步收藏
+                </button>
+            </div>
+            
+            <div class="filter-bar">
+                <select id="collection-type-filter">
+                    <option value="">全部类型</option>
+                    <option value="watching">在看</option>
+                    <option value="completed">看过</option>
+                    <option value="wish">想看</option>
+                    <option value="on_hold">搁置</option>
+                    <option value="dropped">抛弃</option>
+                </select>
+                <select id="rating-filter">
+                    <option value="">全部评分</option>
+                    <option value="10">10分</option>
+                    <option value="9">9分</option>
+                    <option value="8">8分</option>
+                    <option value="7">7分</option>
+                    <option value="6">6分</option>
+                    <option value="5">5分</option>
+                    <option value="4">4分</option>
+                    <option value="3">3分</option>
+                    <option value="2">2分</option>
+                    <option value="1">1分</option>
+                </select>
+                <button id="add-collection-btn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> 添加收藏
+                </button>
+            </div>
+            
+            <div id="collections-container" class="collections-container">
+                <!-- 收藏列表将通过JavaScript动态生成 -->
+            </div>
+        </section>
+
+        <!-- Bangumi绑定内容 -->
+        <section id="bangumi-section" class="content-section">
+            <h2>Bangumi账户绑定</h2>
+            
+            <div id="bangumi-binding-status" class="binding-status">
+                <p>检查Bangumi账户绑定状态...</p>
+            </div>
+            
+            <div id="bangumi-binding-actions" class="binding-actions">
+                <!-- 绑定/解绑按钮将通过JavaScript动态生成 -->
+            </div>
+            
+            <div id="bangumi-sync-section" class="sync-section">
+                <h3>数据同步</h3>
+                <button id="sync-bangumi-data-btn" class="btn btn-primary">
+                    <i class="fas fa-sync"></i> 同步Bangumi数据
+                </button>
+                <div id="sync-result" class="sync-result"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 弹窗容器 -->
+    <div id="modal-container"></div>
+
+    <!-- 登录/注册弹窗 -->
+    <div id="auth-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="close-auth-modal">&times;</span>
+            <div class="auth-container">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="login">登录</button>
+                    <button class="tab-btn" data-tab="register">注册</button>
+                </div>
+
+                <!-- 登录表单 -->
+                <form id="login-form" class="auth-form active">
+                    <h2>欢迎回来</h2>
+                    <input type="text" id="login-username" placeholder="用户名" required>
+                    <input type="password" id="login-password" placeholder="密码" required>
+                    <button type="submit">登录</button>
+                </form>
+
+                <!-- 注册表单 -->
+                <form id="register-form" class="auth-form">
+                    <h2>创建新账户</h2>
+                    <input type="text" id="register-username" placeholder="用户名" required>
+                    <input type="email" id="register-email" placeholder="邮箱" required>
+                    <input type="password" id="register-password" placeholder="密码" required>
+                    <input type="password" id="register-confirm-password" placeholder="确认密码" required>
+                    <button type="submit">注册</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑收藏弹窗 -->
+    <div id="collection-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="close-collection-modal">&times;</span>
+            <h2 id="collection-modal-title">添加收藏</h2>
+            <form id="collection-form">
+                <div class="form-group">
+                    <label for="anime-id">番剧ID:</label>
+                    <input type="number" id="anime-id" required>
+                </div>
+                <div class="form-group">
+                    <label for="collection-type">收藏类型:</label>
+                    <select id="collection-type" required>
+                        <option value="watching">在看</option>
+                        <option value="completed">看过</option>
+                        <option value="wish">想看</option>
+                        <option value="on_hold">搁置</option>
+                        <option value="dropped">抛弃</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="collection-rating">评分 (1-10):</label>
+                    <input type="number" id="collection-rating" min="1" max="10">
+                </div>
+                <div class="form-group">
+                    <label for="collection-comment">评论:</label>
+                    <textarea id="collection-comment" rows="4"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

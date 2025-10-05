@@ -81,8 +81,8 @@ func (h *UserHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. 调用服务层注册用户
-	safeUser, err := h.userService.Register(r.Context(), req.Username, req.Email, req.Password)
+	// 3. 调用服务层注册用户（带验证）
+	safeUser, err := h.userService.RegisterWithVerification(r.Context(), req.Username, req.Email, req.Password)
 	if err != nil {
 		// 根据错误类型返回不同状态码（简化处理）
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -93,7 +93,8 @@ func (h *UserHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"user": safeUser,
+		"user":    safeUser,
+		"message": "注册成功，请检查您的邮箱并点击验证链接完成注册",
 	})
 }
 
@@ -194,32 +195,29 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// generateJWT 生成JWT token
+// generateJWT 生成JWT令牌
 func generateJWT(userID int64) (string, error) {
-	// 从环境变量获取密钥，如果没有则使用默认值
-	secretKey := getEnv("JWT_SECRET", "default_secret_key")
-	
-	claims := &JWTClaims{
-		UserID: userID,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // 24小时过期
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
+	// 从环境变量获取JWT密钥，如果没有则使用默认值
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default_secret_key"
 	}
-	
+
+	// 创建声明
+	claims := jwt.MapClaims{
+		"userID": userID,
+		"exp":    time.Now().Add(time.Hour * 24).Unix(), // 24小时过期
+		"iat":    time.Now().Unix(),
+	}
+
+	// 创建token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(secretKey))
+
+	// 签名token
+	signedToken, err := token.SignedString([]byte(jwtSecret))
 	if err != nil {
 		return "", err
 	}
-	
-	return tokenString, nil
-}
 
-// getEnv 获取环境变量，如果不存在则使用默认值
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
+	return signedToken, nil
 }
