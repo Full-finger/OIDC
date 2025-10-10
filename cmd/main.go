@@ -3,269 +3,128 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
-	"strings"
-	"time"
 
+	"github.com/Full-finger/OIDC/internal/aspect"
+	"github.com/Full-finger/OIDC/internal/filter"
+	"github.com/Full-finger/OIDC/internal/handler"
+	"github.com/Full-finger/OIDC/internal/helper"
+	"github.com/Full-finger/OIDC/internal/mapper"
+	"github.com/Full-finger/OIDC/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq" // PostgreSQL driver
-	"github.com/golang-jwt/jwt/v5"
-
-	"github.com/Full-finger/OIDC/internal/handler"
-	"github.com/Full-finger/OIDC/internal/middleware"
-	"github.com/Full-finger/OIDC/internal/repository"
-	"github.com/Full-finger/OIDC/internal/service"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-	// 强制设置Gin为调试模式以显示详细日志
-	gin.SetMode(gin.DebugMode)
-	
-	// 加载.env文件中的环境变量
+	// Load environment variables
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using default environment variables")
+		log.Printf("Warning: Error loading .env file: %v", err)
 	}
 
-	// 1. 初始化数据库连接池
-	db := initDB()
+	// Initialize database connection
+	db, err := initDB()
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
 	defer db.Close()
 
-	// 2. 初始化各层依赖
-	userRepo := repository.NewUserRepository(db)
-	oauthRepo := repository.NewOAuthRepository(db)
-	animeRepo := repository.NewAnimeRepository(db)
-	collectionRepo := repository.NewCollectionRepository(db)
-	bangumiRepo := repository.NewBangumiRepository(db)
-	userService := service.NewUserService(userRepo)
-	oauthService := service.NewOAuthService(oauthRepo, userRepo)
-	animeService := service.NewAnimeService(animeRepo)
-	collectionService := service.NewCollectionService(collectionRepo)
-	bangumiService := service.NewBangumiService(bangumiRepo, animeService, collectionService)
-	
-	userHandler := handler.NewUserHandler(userService)
-	authHandler := handler.NewAuthHandler(oauthService)
-	tokenHandler := handler.NewTokenHandler(oauthService)
-	userinfoHandler := handler.NewUserInfoHandler(userService, oauthService)
-	discoveryHandler := handler.NewDiscoveryHandler()
-	animeHandler := handler.NewAnimeHandler(animeService)
-	collectionHandler := handler.NewCollectionHandler(collectionService)
-	bangumiHandler := handler.NewBangumiHandler(bangumiService)
+	// Initialize components
+	loggingAspect := aspect.NewLoggingAspect()
+	preprocessingAspect := aspect.NewPreprocessingAspect()
 
-	// 3. 设置 Gin 路由
+	// Initialize helpers
+	userHelper := helper.NewUserHelper()
+
+	// Initialize mappers
+	userMapper := mapper.NewUserMapper(db)
+
+	// Initialize services
+	userService := service.NewUserService(userMapper, userHelper)
+
+	// Initialize filters
+	authFilter := filter.NewAuthFilter(userService)
+
+	// Initialize controllers
+	userController := handler.NewUserController(userService)
+
+	// Initialize Gin router
 	r := gin.Default()
-	
-	// 添加全局日志中间件
+
+	// Apply aspects as middleware
 	r.Use(func(c *gin.Context) {
-		log.Printf("=== Incoming Request ===")
-		log.Printf("Method: %s", c.Request.Method)
-		log.Printf("URL: %s", c.Request.URL.Path)
-		log.Printf("Remote IP: %s", c.ClientIP())
-		c.Next()
+		loggingAspect.Handle(c)
 	})
 
-	// OpenID Connect Discovery 端点
-	r.GET("/.well-known/openid-configuration", discoveryHandler.GetDiscovery)
+	r.Use(func(c *gin.Context) {
+		preprocessingAspect.Handle(c)
+	})
 
-	// 公共路由（无需认证）
-	public := r.Group("/api/v1")
+	// Define routes
+	v1 := r.Group("/api/v1")
 	{
-		public.POST("/register", func(c *gin.Context) {
-			userHandler.RegisterHandler(c.Writer, c.Request)
+		// Public routes
+		v1.POST("/register", userController.Register)
+		v1.POST("/login", userController.Login)
+		v1.GET("/verify-email", userController.VerifyEmail)
+
+		// Protected routes
+		protected := v1.Group("/")
+		protected.Use(func(c *gin.Context) {
+			authFilter.Handle(c)
 		})
-		public.POST("/login", func(c *gin.Context) {
-			userHandler.LoginHandler(c.Writer, c.Request)
-		})
-	}
-	
-	// OAuth路由
-	oauth := r.Group("/oauth")
-	{
-		oauth.GET("/authorize", authHandler.AuthorizeHandler)
-		oauth.POST("/authorize", middleware.JWTAuthMiddleware(), authHandler.AuthorizePostHandler)
-		oauth.POST("/token", tokenHandler.TokenHandler)
-		// OIDC UserInfo端点
-		oauth.GET("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
-		oauth.POST("/userinfo", middleware.JWTAuthMiddleware(), userinfoHandler.GetUserInfo)
-	}
-
-	// 番剧管理路由（需要管理员权限）
-	animes := r.Group("/api/v1/animes")
-	{
-		animes.POST("", middleware.JWTAuthMiddleware(), animeHandler.CreateAnime)              // 创建番剧（管理员）
-		animes.GET("/:id", middleware.JWTAuthMiddleware(), animeHandler.GetAnime)              // 获取番剧详情
-		animes.GET("", animeHandler.ListAnimes)                                                // 获取番剧列表（公开）
-		animes.PUT("/:id", middleware.JWTAuthMiddleware(), animeHandler.UpdateAnime)           // 更新番剧（管理员）
-		animes.DELETE("/:id", middleware.JWTAuthMiddleware(), animeHandler.DeleteAnime)        // 删除番剧（管理员）
-	}
-
-	// 用户收藏路由 (新的API路径)
-	me := r.Group("/api/v1/me")
-	me.Use(middleware.JWTAuthMiddleware())
-	{
-		me.POST("/collections", collectionHandler.UpsertCollection)              // 添加或更新收藏
-		me.GET("/collections", collectionHandler.ListCollections)                // 获取用户收藏列表（支持筛选）
-		me.DELETE("/collections/:anime_id", collectionHandler.DeleteCollectionByAnimeID)  // 删除指定番剧的收藏
-		me.POST("/bangumi/bind", bangumiHandler.BindBangumiAccount)              // 绑定Bangumi账号
-		me.GET("/bangumi/binding", bangumiHandler.GetBangumiBinding)             // 获取Bangumi绑定信息
-		me.DELETE("/bangumi/unbind", bangumiHandler.UnbindBangumiAccount)        // 解绑Bangumi账号
-		me.POST("/bangumi/sync", bangumiHandler.SyncBangumiData)                 // 同步Bangumi数据
-	}
-	
-	// Bangumi OAuth回调路由（不需要JWT认证，但需要用户登录）
-	bangumiCallback := r.Group("/api/v1/bangumi/callback")
-	bangumiCallback.Use(middleware.JWTAuthMiddleware())
-	{
-		bangumiCallback.GET("", bangumiHandler.BangumiBindCallback)              // Bangumi OAuth回调
-	}
-	
-	// 保持原有的收藏路由以向后兼容
-	collections := r.Group("/api/v1/collections")
-	collections.Use(middleware.JWTAuthMiddleware())
-	{
-		collections.POST("", collectionHandler.CreateCollection)           // 创建收藏
-		collections.GET("/:id", collectionHandler.GetCollection)           // 获取收藏详情
-		collections.GET("", collectionHandler.ListCollections)             // 获取用户收藏列表
-		collections.PUT("/:id", collectionHandler.UpdateCollection)        // 更新收藏
-		collections.DELETE("/:id", collectionHandler.DeleteCollection)     // 删除收藏
-	}
-
-	// 添加简单的登录页面路由
-	r.GET("/login", func(c *gin.Context) {
-		// 简单的登录页面HTML
-		redirectParam := c.Query("redirect")
-		// 转义引号以避免HTML问题
-		redirectParam = strings.ReplaceAll(redirectParam, "\"", "&quot;")
-		
-		html := `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Login</title>
-    <meta charset="utf-8">
-</head>
-<body>
-    <h2>Login</h2>
-    <form method="POST" action="/login">
-        <p>
-            <label>Username:</label><br>
-            <input type="text" name="username" required>
-        </p>
-        <p>
-            <label>Password:</label><br>
-            <input type="password" name="password" required>
-        </p>
-        <input type="hidden" name="redirect" value="` + redirectParam + `">
-        <p>
-            <button type="submit">Login</button>
-        </p>
-    </form>
-</body>
-</html>`
-		c.Data(200, "text/html; charset=utf-8", []byte(html))
-	})
-
-	// 添加登录处理路由
-	r.POST("/login", func(c *gin.Context) {
-		// 这里应该有实际的用户认证逻辑
-		// 为了测试目的，我们简化处理
-		
-		// 模拟用户认证成功
-		// 在实际应用中，你应该验证用户名和密码
-		username := c.PostForm("username")
-		_ = c.PostForm("password") // 忽略密码，仅为了消除编译错误
-		redirect := c.PostForm("redirect")
-		
-		log.Printf("Login attempt - Username: %s, Redirect: %s", username, redirect)
-		
-		// 生成JWT token
-		jwtSecret := getEnv("JWT_SECRET", "default_secret_key")
-		
-		// 创建token声明
-		claims := &middleware.JWTClaims{
-			UserID: 1, // 使用用户ID 1
+		{
+			protected.GET("/profile", userController.GetProfile)
+			protected.PUT("/profile", userController.UpdateProfile)
+			protected.PUT("/password", userController.ChangePassword)
+			protected.POST("/request-verification", userController.RequestEmailVerification)
 		}
-		
-		// 创建token
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString([]byte(jwtSecret))
-		if err != nil {
-			log.Printf("Failed to generate JWT token: %v", err)
-			c.JSON(500, gin.H{"error": "Failed to generate token"})
-			return
-		}
-		
-		// 设置cookie
-		c.SetCookie("token", tokenString, 3600, "/", "", false, true)
-		
-		// 重定向回OAuth流程
-		if redirect == "" {
-			// 如果没有提供redirect参数，使用默认值
-			redirect = "/oauth/authorize?response_type=code&client_id=test_client&redirect_uri=http://localhost:9999/callback&scope=read&state=xyz"
-		}
-		
-		log.Printf("Login successful, redirecting to: %s", redirect)
-		c.Redirect(302, redirect)
-	})
-
-	// 受保护路由（需认证）
-	protected := r.Group("/api/v1")
-	protected.Use(middleware.JWTAuthMiddleware())
-	{
-		protected.GET("/profile", userHandler.GetProfileHandler)
-		protected.PUT("/profile", userHandler.UpdateProfileHandler)
 	}
 
-	// 4. 启动服务器
+	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("Server starting on :%s", port)
-	log.Printf("Gin mode: %s", gin.Mode())
+
+	log.Printf("Server starting on port %s", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
-// initDB 初始化 PostgreSQL 连接池
-func initDB() *sql.DB {
-	// 从环境变量读取配置参数，或使用默认值（开发用）
+// initDB initializes the database connection
+func initDB() (*sql.DB, error) {
+	// Get database connection details from environment variables
 	host := getEnv("DB_HOST", "localhost")
-	user := getEnv("DB_USER", "oidc_user")
-	password := getEnv("DB_PASSWORD", "oidc_password")
-	dbname := getEnv("DB_NAME", "oidc_db")
 	port := getEnv("DB_PORT", "5432")
-	sslmode := getEnv("DB_SSLMODE", "disable")
-	timezone := getEnv("DB_TIMEZONE", "UTC")
+	user := getEnv("DB_USER", "postgres")
+	password := getEnv("DB_PASSWORD", "password")
+	dbname := getEnv("DB_NAME", "oidc")
 
-	// 动态构建连接字符串
-	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s timezone=%s",
-		host, user, password, dbname, port, sslmode, timezone)
+	// Create connection string
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
 
-	db, err := sql.Open("postgres", dsn)
+	// Open database connection
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// 设置连接池参数
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	// 测试连接
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+	// Test the connection
+	if err := db.PingContext(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
-	log.Println("Database connection established")
 
-	return db
+	return db, nil
 }
 
-// getEnv 获取环境变量，如果不存在则使用默认值
+// getEnv gets an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

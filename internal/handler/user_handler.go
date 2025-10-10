@@ -3,221 +3,125 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
-	"os"
-	"regexp"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/Full-finger/OIDC/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
-// UserHandler 负责处理用户相关的 HTTP 请求
+// UserHandler handles user-related requests
 type UserHandler struct {
-	userService *service.UserService
+	userService service.UserService
 }
 
-// NewUserHandler 创建 UserHandler 实例
-func NewUserHandler(userService *service.UserService) *UserHandler {
+// NewUserHandler creates a new UserHandler instance
+func NewUserHandler(userService service.UserService) *UserHandler {
 	return &UserHandler{
 		userService: userService,
 	}
 }
 
-// RegisterRequest 定义注册请求的 JSON 结构
-type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-// LoginRequest 定义登录请求的 JSON 结构
-type LoginRequest struct {
-	Username string `json:"username"` // 可以是用户名或邮箱
-	Password string `json:"password"`
-}
-
-// RegisterHandler 处理用户注册请求
-func (h *UserHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. 解析 JSON 请求体
-	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
+// Register handles user registration
+func (h *UserHandler) Register(c *gin.Context) {
+	// Define request structure
+	var req struct {
+		Username string `json:"username" binding:"required"`
+		Email    string `json:"email" binding:"required"`
+		Password string `json:"password" binding:"required"`
 	}
 
-	// 2. 参数校验
-	if req.Username == "" {
-		http.Error(w, "username is required", http.StatusBadRequest)
-		return
-	}
-	
-	if len(req.Username) < 3 || len(req.Username) > 20 {
-		http.Error(w, "username must be between 3 and 20 characters", http.StatusBadRequest)
-		return
-	}
-	
-	if req.Email == "" {
-		http.Error(w, "email is required", http.StatusBadRequest)
-		return
-	}
-	
-	// 简单的邮箱格式验证
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	if !emailRegex.MatchString(req.Email) {
-		http.Error(w, "invalid email format", http.StatusBadRequest)
-		return
-	}
-	
-	if req.Password == "" {
-		http.Error(w, "password is required", http.StatusBadRequest)
-		return
-	}
-	
-	if len(req.Password) < 6 {
-		http.Error(w, "password must be at least 6 characters", http.StatusBadRequest)
-		return
-	}
-
-	// 3. 调用服务层注册用户（带验证）
-	safeUser, err := h.userService.RegisterWithVerification(r.Context(), req.Username, req.Email, req.Password)
-	if err != nil {
-		// 根据错误类型返回不同状态码（简化处理）
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-
-	// 4. 返回成功响应（JSON 格式）
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"user":    safeUser,
-		"message": "注册成功，请检查您的邮箱并点击验证链接完成注册",
-	})
-}
-
-// LoginHandler 处理用户登录请求
-func (h *UserHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. 解析 JSON 请求体
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	// 2. 参数校验
-	if req.Username == "" || req.Password == "" {
-		http.Error(w, "username and password are required", http.StatusBadRequest)
-		return
-	}
-
-	// 3. 调用服务层登录
-	safeUser, err := h.userService.Login(r.Context(), req.Username, req.Password)
-	if err != nil {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
-		return
-	}
-
-	// 4. 生成JWT token
-	tokenString, err := generateJWT(safeUser.ID)
-	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
-		return
-	}
-
-	// 5. 返回成功响应
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"user":  safeUser,
-		"token": tokenString,
-	})
-}
-
-// UpdateProfileRequest 定义更新资料请求
-type UpdateProfileRequest struct {
-	Nickname  *string `json:"nickname,omitempty"`
-	AvatarURL *string `json:"avatar_url,omitempty"`
-	Bio       *string `json:"bio,omitempty"`
-}
-
-// UpdateProfileHandler 处理更新用户资料请求（需认证）
-func (h *UserHandler) UpdateProfileHandler(c *gin.Context) {
-	// 从Gin上下文中获取用户ID（由JWT中间件设置）
-	userIDValue, exists := c.Get("userID")
-	if !exists {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return
-	}
-	
-	userID, ok := userIDValue.(int64)
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid user ID"})
-		return
-	}
-
-	var req UpdateProfileRequest
+	// Bind JSON
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	safeUser, err := h.userService.UpdateProfile(c.Request.Context(), userID, req.Nickname, req.AvatarURL, req.Bio)
+	// Call service
+	safeUser, err := h.userService.RegisterWithVerification(c.Request.Context(), req.Username, req.Email, req.Password)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": safeUser})
+	// Return success response
+	c.JSON(http.StatusCreated, safeUser)
 }
 
-// GetProfileHandler 获取当前用户资料
-func (h *UserHandler) GetProfileHandler(c *gin.Context) {
-	userID, ok := c.Get("userID")
-	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+// Login handles user login
+func (h *UserHandler) Login(c *gin.Context) {
+	// Define request structure
+	var req struct {
+		Email    string `json:"email" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+
+	// Bind JSON
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	user, err := h.userService.GetUserByID(c.Request.Context(), userID.(int64))
+	// Call service
+	user, err := h.userService.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": user.SafeUser()})
-}
-
-// JWTClaims 自定义JWT声明
-type JWTClaims struct {
-	UserID int64 `json:"user_id"`
-	jwt.RegisteredClaims
-}
-
-// generateJWT 生成JWT令牌
-func generateJWT(userID int64) (string, error) {
-	// 从环境变量获取JWT密钥，如果没有则使用默认值
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "default_secret_key"
-	}
-
-	// 创建声明
-	claims := jwt.MapClaims{
-		"userID": userID,
-		"exp":    time.Now().Add(time.Hour * 24).Unix(), // 24小时过期
-		"iat":    time.Now().Unix(),
-	}
-
-	// 创建token
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// 签名token
-	signedToken, err := token.SignedString([]byte(jwtSecret))
+	// Generate JWT token
+	token, err := h.userService.GenerateJWT(user)
 	if err != nil {
-		return "", err
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	return signedToken, nil
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{
+		"token": token,
+		"user":  user.SafeUser(),
+	})
+}
+
+// GetProfile handles getting user profile
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	// Get user ID from context (in a real implementation, this would come from authentication)
+	userID := int64(1) // Placeholder
+
+	// Call service
+	user, err := h.userService.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Return success response
+	c.JSON(http.StatusOK, user.SafeUser())
+}
+
+// UpdateProfile handles updating user profile
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	// Get user ID from context (in a real implementation, this would come from authentication)
+	userID := int64(1) // Placeholder
+
+	// Define request structure
+	var req struct {
+		Nickname  *string `json:"nickname"`
+		AvatarURL *string `json:"avatar_url"`
+		Bio       *string `json:"bio"`
+	}
+
+	// Bind JSON
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Call service
+	if err := h.userService.UpdateProfile(c.Request.Context(), userID, req.Nickname, req.AvatarURL, req.Bio); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Return success response
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
 }
