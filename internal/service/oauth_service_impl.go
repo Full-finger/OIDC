@@ -469,12 +469,17 @@ func (s *oauthService) GetClientByClientID(ctx context.Context, clientID string)
 	// 模拟一个客户端对象用于演示
 	client := &model.Client{
 		ID:          1,
-		ClientID:    clientID,
+		ClientID:    "test_client",
 		SecretHash:  "", // 实际应该存储哈希值
-		Name:        "示例客户端",
-		Description: "用于演示的示例客户端",
+		Name:        "测试客户端",
+		Description: "用于测试的客户端",
 		RedirectURI: "http://localhost:3000/callback",
 		Scopes:      "openid profile email",
+	}
+	
+	// 检查客户端ID是否匹配
+	if clientID != client.ClientID {
+		return nil, fmt.Errorf("client not found")
 	}
 
 	return client, nil

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
 	"time"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/Full-finger/OIDC/internal/model"
@@ -64,18 +65,26 @@ func (s *userService) RegisterUser(username, password, email, nickname string) e
 		return errors.New("密码加密失败")
 	}
 
+	// 检查是否跳过邮箱验证
+	skipEmailVerification := os.Getenv("SKIP_EMAIL_VERIFICATION") == "true"
+	
 	// 创建用户实体
 	user := &model.User{
 		Username:     username,
 		PasswordHash: string(hashedPassword),
 		Email:        email,
 		Nickname:     nickname,
-		IsActive:     false, // 用户默认未激活，需要邮箱验证
+		IsActive:     skipEmailVerification, // 如果跳过邮箱验证，则用户默认激活
 	}
 
 	// 通过Repository创建用户
 	if err := s.userRepo.Create(user); err != nil {
 		return errors.New("用户创建失败")
+	}
+
+	// 如果跳过邮箱验证，则直接返回
+	if skipEmailVerification {
+		return nil
 	}
 
 	// 生成验证令牌
@@ -116,7 +125,22 @@ func (s *userService) RegisterUser(username, password, email, nickname string) e
 
 // ActivateUser 激活用户
 func (s *userService) ActivateUser(userID uint) error {
-	// TODO: 实现用户激活逻辑
+	// 更新用户激活状态
+	if err := s.userRepo.UpdateActivationStatus(userID, true); err != nil {
+		return errors.New("更新用户激活状态失败")
+	}
+	
+	// 删除验证令牌
+	// 先根据用户ID获取令牌
+	token, err := s.tokenRepo.GetByUserID(userID)
+	if err == nil && token != nil {
+		// 如果令牌存在，则删除它
+		if err := s.tokenRepo.DeleteByToken(token.Token); err != nil {
+			// 记录日志但不中断激活流程
+			// 在实际项目中，可能需要更完善的错误处理机制
+		}
+	}
+	
 	return nil
 }
 
@@ -158,46 +182,21 @@ func (s *userService) VerifyEmail(token string) error {
 
 // ResendVerificationEmail 重新发送验证邮件
 func (s *userService) ResendVerificationEmail(email string) error {
-	// 根据邮箱获取用户
+	// 查找用户
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
 		return errors.New("用户不存在")
 	}
 
-	// 检查用户是否已经激活
+	// 检查用户是否已激活
 	if user.IsActive {
-		return errors.New("用户已经激活，无需重新发送验证邮件")
-	}
-
-	// 检查是否已存在验证令牌
-	existingToken, err := s.tokenRepo.GetByUserID(user.ID)
-	if err == nil && time.Now().Before(existingToken.ExpiresAt) {
-		// 如果存在未过期的令牌，直接使用它
-		token := existingToken.Token
-		
-		// 将邮件发送任务加入队列
-		emailItem := util.EmailQueueItem{
-			Email: user.Email,
-			Token: token,
-		}
-		
-		if err := s.emailQueue.Enqueue(emailItem); err != nil {
-			// 如果加入队列失败，记录日志但不中断流程
-			return errors.New("邮件发送任务加入队列失败")
-		}
-		
-		return nil
+		return errors.New("用户已激活，无需重新发送验证邮件")
 	}
 
 	// 生成新的验证令牌
 	tokenString, err := s.generateVerificationToken()
 	if err != nil {
 		return errors.New("生成验证令牌失败")
-	}
-
-	// 如果存在过期的令牌，删除它
-	if existingToken != nil {
-		s.tokenRepo.Delete(existingToken.ID)
 	}
 
 	// 创建验证令牌记录
@@ -219,7 +218,6 @@ func (s *userService) ResendVerificationEmail(email string) error {
 	}
 	
 	if err := s.emailQueue.Enqueue(emailItem); err != nil {
-		// 如果加入队列失败，记录日志但不中断流程
 		return errors.New("邮件发送任务加入队列失败")
 	}
 
@@ -234,8 +232,11 @@ func (s *userService) AuthenticateUser(username, password string) (*model.User, 
 		return nil, errors.New("用户不存在")
 	}
 
-	// 检查用户是否已激活
-	if !user.IsActive {
+	// 检查是否跳过邮箱验证
+	skipEmailVerification := os.Getenv("SKIP_EMAIL_VERIFICATION") == "true"
+	
+	// 检查用户是否已激活（除非跳过邮箱验证）
+	if !skipEmailVerification && !user.IsActive {
 		return nil, errors.New("用户未激活，请先验证邮箱")
 	}
 
@@ -250,12 +251,26 @@ func (s *userService) AuthenticateUser(username, password string) (*model.User, 
 
 // GetUserByID 根据ID获取用户
 func (s *userService) GetUserByID(id uint) (*model.User, error) {
-	// TODO: 实现根据ID获取用户逻辑
-	return nil, nil
+	return s.userRepo.GetByID(id)
 }
 
 // UpdateUserProfile 更新用户资料
 func (s *userService) UpdateUserProfile(userID uint, nickname, avatarURL, bio string) error {
-	// TODO: 实现更新用户资料逻辑
+	// 查找用户
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 更新用户资料
+	user.Nickname = nickname
+	user.AvatarURL = avatarURL
+	user.Bio = bio
+
+	// 保存更新
+	if err := s.userRepo.Update(user); err != nil {
+		return errors.New("更新用户资料失败")
+	}
+
 	return nil
 }
