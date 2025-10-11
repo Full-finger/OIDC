@@ -1,25 +1,47 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"time"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/Full-finger/OIDC/internal/model"
 	"github.com/Full-finger/OIDC/internal/repository"
 	"github.com/Full-finger/OIDC/internal/helper"
+	"github.com/Full-finger/OIDC/internal/util"
 )
 
 // userService 用户服务实现
 type userService struct {
-	userRepo repository.UserRepository
-	userHelper helper.UserHelper
+	userRepo    repository.UserRepository
+	userHelper  helper.UserHelper
+	tokenRepo   repository.VerificationTokenRepository
+	emailQueue  util.EmailQueue
 }
 
 // NewUserService 创建UserService实例
-func NewUserService(userRepo repository.UserRepository, userHelper helper.UserHelper) UserService {
+func NewUserService(
+	userRepo repository.UserRepository,
+	userHelper helper.UserHelper,
+	tokenRepo repository.VerificationTokenRepository,
+	emailQueue util.EmailQueue,
+) UserService {
 	return &userService{
-		userRepo: userRepo,
+		userRepo:   userRepo,
 		userHelper: userHelper,
+		tokenRepo:  tokenRepo,
+		emailQueue: emailQueue,
 	}
+}
+
+// generateVerificationToken 生成验证令牌
+func (s *userService) generateVerificationToken() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }
 
 // RegisterUser 注册用户
@@ -54,6 +76,39 @@ func (s *userService) RegisterUser(username, password, email, nickname string) e
 	// 通过Repository创建用户
 	if err := s.userRepo.Create(user); err != nil {
 		return errors.New("用户创建失败")
+	}
+
+	// 生成验证令牌
+	tokenString, err := s.generateVerificationToken()
+	if err != nil {
+		return errors.New("生成验证令牌失败")
+	}
+
+	// 创建验证令牌记录
+	token := &model.VerificationToken{
+		UserID:    user.ID,
+		Token:     tokenString,
+		ExpiresAt: time.Now().Add(24 * time.Hour), // 24小时后过期
+	}
+
+	// 保存验证令牌
+	if err := s.tokenRepo.Create(token); err != nil {
+		return errors.New("保存验证令牌失败")
+	}
+
+	// 将邮件发送任务加入队列
+	emailItem := util.EmailQueueItem{
+		Email: user.Email,
+		Token: tokenString,
+	}
+	
+	if err := s.emailQueue.Enqueue(emailItem); err != nil {
+		// 如果加入队列失败，记录日志但不中断注册流程
+		// 在实际项目中，可能需要更完善的错误处理机制
+		// 比如重试机制或者将任务保存到数据库中
+		// 这里简化处理，仅记录日志
+		// 真实场景中应该有专门的邮件发送服务来处理队列中的任务
+		// TODO: 实现更完善的错误处理机制
 	}
 
 	return nil

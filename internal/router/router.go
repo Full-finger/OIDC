@@ -6,6 +6,7 @@ import (
 	"github.com/Full-finger/OIDC/internal/service"
 	"github.com/Full-finger/OIDC/internal/repository"
 	"github.com/Full-finger/OIDC/internal/helper"
+	"github.com/Full-finger/OIDC/internal/util"
 )
 
 // SetupRouter 设置路由
@@ -15,7 +16,10 @@ func SetupRouter() *gin.Engine {
 	// 初始化依赖
 	userRepo := repository.NewUserRepository()
 	userHelper := helper.NewUserHelper()
-	userService := service.NewUserService(userRepo, userHelper)
+	tokenRepo := repository.NewVerificationTokenRepository()
+	emailQueue := util.NewSimpleEmailQueue()
+	
+	userService := service.NewUserService(userRepo, userHelper, tokenRepo, emailQueue)
 	userHandler := handler.NewUserHandler(userService)
 
 	// API v1 路由组
