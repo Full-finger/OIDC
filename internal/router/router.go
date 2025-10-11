@@ -7,6 +7,7 @@ import (
 	"github.com/Full-finger/OIDC/internal/repository"
 	"github.com/Full-finger/OIDC/internal/helper"
 	"github.com/Full-finger/OIDC/internal/util"
+	"github.com/Full-finger/OIDC/internal/middleware"
 )
 
 // SetupRouter 设置路由
@@ -23,11 +24,16 @@ func SetupRouter() *gin.Engine {
 	userHandler := handler.NewUserHandler(userService)
 	verificationHandler := handler.NewVerificationHandler(userService)
 
+	// 初始化限流中间件
+	rateLimiter := middleware.NewRateLimiter()
+	// 设置为每5分钟最多5次请求
+	rateLimiter.SetLimit(5, 5*60)
+
 	// API v1 路由组
 	v1 := r.Group("/api/v1")
 	{
 		// 用户相关路由
-		v1.POST("/register", userHandler.Register)
+		v1.POST("/register", rateLimiter.LimitByIP(), userHandler.Register)
 		v1.POST("/login", userHandler.Login)
 		// 邮箱验证路由
 		v1.GET("/verify", verificationHandler.VerifyEmail)
