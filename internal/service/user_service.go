@@ -26,4 +26,10 @@ type UserService interface {
 
 	// UpdateUserProfile 更新用户资料
 	UpdateUserProfile(userID uint, nickname, avatarURL, bio string) error
+
+	// GenerateAccessToken 生成访问令牌
+	GenerateAccessToken(userID uint, scopes []string) (string, error)
+
+	// GenerateRefreshToken 生成刷新令牌
+	GenerateRefreshToken(userID uint, scopes []string) (string, error)
 }

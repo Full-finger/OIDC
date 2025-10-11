@@ -2,24 +2,33 @@ package service
 
 import (
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"time"
-	"golang.org/x/crypto/bcrypt"
+
+	"github.com/Full-finger/OIDC/internal/helper"
 	"github.com/Full-finger/OIDC/internal/model"
 	"github.com/Full-finger/OIDC/internal/repository"
-	"github.com/Full-finger/OIDC/internal/helper"
 	"github.com/Full-finger/OIDC/internal/util"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // userService 用户服务实现
 type userService struct {
-	userRepo    repository.UserRepository
-	userHelper  helper.UserHelper
-	tokenRepo   repository.VerificationTokenRepository
-	emailQueue  util.EmailQueue
+	userRepo   repository.UserRepository
+	userHelper helper.UserHelper
+	tokenRepo  repository.VerificationTokenRepository
+	emailQueue util.EmailQueue // 使用util包中的接口类型
 }
+
 
 // NewUserService 创建UserService实例
 func NewUserService(
@@ -112,12 +121,7 @@ func (s *userService) RegisterUser(username, password, email, nickname string) e
 	}
 	
 	if err := s.emailQueue.Enqueue(emailItem); err != nil {
-		// 如果加入队列失败，记录日志但不中断注册流程
-		// 在实际项目中，可能需要更完善的错误处理机制
-		// 比如重试机制或者将任务保存到数据库中
-		// 这里简化处理，仅记录日志
-		// 真实场景中应该有专门的邮件发送服务来处理队列中的任务
-		// TODO: 实现更完善的错误处理机制
+		return errors.New("邮件发送任务加入队列失败")
 	}
 
 	return nil
@@ -273,4 +277,94 @@ func (s *userService) UpdateUserProfile(userID uint, nickname, avatarURL, bio st
 	}
 
 	return nil
+}
+
+// GenerateAccessToken 生成访问令牌
+func (s *userService) GenerateAccessToken(userID uint, scopes []string) (string, error) {
+	// 获取用户信息
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return "", errors.New("用户不存在")
+	}
+
+	// 生成JWT令牌
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub":   fmt.Sprintf("%d", user.ID),
+		"iss":   "OIDC", // 应该从配置中获取
+		"aud":   "test_client",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+		"scope": strings.Join(scopes, " "),
+		"preferred_username": user.Username,
+		"email":              user.Email,
+		"name":               user.Nickname,
+	})
+
+	// 获取私钥路径
+	privateKeyPath := os.Getenv("JWT_PRIVATE_KEY_PATH")
+	if privateKeyPath == "" {
+		privateKeyPath = "config/private_key.pem"
+	}
+	
+	// 读取私钥文件
+	privateKeyData, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return "", errors.New("读取私钥文件失败")
+	}
+	
+	// 解析私钥
+	privateKey, err := s.parsePrivateKey(privateKeyData)
+	if err != nil {
+		return "", errors.New("解析私钥失败")
+	}
+
+	// 签名令牌
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", errors.New("令牌签名失败")
+	}
+
+	return tokenString, nil
+}
+
+// GenerateRefreshToken 生成刷新令牌
+func (s *userService) GenerateRefreshToken(userID uint, scopes []string) (string, error) {
+	// 生成随机刷新令牌
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", errors.New("生成刷新令牌失败")
+	}
+	
+	refreshToken := base64.URLEncoding.EncodeToString(bytes)
+	
+	// TODO: 在实际应用中，应该将刷新令牌存储到数据库中
+	// 这里为了简化示例，直接返回生成的令牌
+	
+	return refreshToken, nil
+}
+
+// parsePrivateKey 解析私钥
+func (s *userService) parsePrivateKey(data []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+	
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		// 尝试解析PKCS8格式
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+		
+		rsaKey, ok := key.(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("not an RSA private key")
+		}
+		
+		return rsaKey, nil
+	}
+	
+	return privateKey, nil
 }

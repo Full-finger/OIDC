@@ -71,6 +71,20 @@ func (h *UserHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// 生成访问令牌
+	accessToken, err := h.userService.GenerateAccessToken(user.ID, []string{"openid", "profile", "email"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "令牌生成失败"})
+		return
+	}
+
+	// 生成刷新令牌
+	refreshToken, err := h.userService.GenerateRefreshToken(user.ID, []string{"openid", "profile", "email"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "刷新令牌生成失败"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "登录成功",
 		"user": map[string]interface{}{
@@ -79,6 +93,10 @@ func (h *UserHandler) Login(c *gin.Context) {
 			"email":    user.Email,
 			"nickname": user.Nickname,
 		},
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    3600, // 1小时
 	})
 }
 

@@ -84,13 +84,29 @@ func main() {
 		} else {
 			loginResp = defaultLoginResp
 			fmt.Println("使用默认用户登录成功")
-			fmt.Printf("访问令牌: %s\n", loginResp.AccessToken[:20]+"...")
-			fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken[:20]+"...")
+			if len(loginResp.AccessToken) > 20 {
+				fmt.Printf("访问令牌: %s\n", loginResp.AccessToken[:20]+"...")
+			} else {
+				fmt.Printf("访问令牌: %s\n", loginResp.AccessToken)
+			}
+			if len(loginResp.RefreshToken) > 20 {
+				fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken[:20]+"...")
+			} else {
+				fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken)
+			}
 		}
 	} else {
 		fmt.Println("用户登录成功")
-		fmt.Printf("访问令牌: %s\n", loginResp.AccessToken[:20]+"...")
-		fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken[:20]+"...")
+		if len(loginResp.AccessToken) > 20 {
+			fmt.Printf("访问令牌: %s\n", loginResp.AccessToken[:20]+"...")
+		} else {
+			fmt.Printf("访问令牌: %s\n", loginResp.AccessToken)
+		}
+		if len(loginResp.RefreshToken) > 20 {
+			fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken[:20]+"...")
+		} else {
+			fmt.Printf("刷新令牌: %s\n", loginResp.RefreshToken)
+		}
 	}
 
 	// 3. 测试OIDC Discovery端点
@@ -124,9 +140,17 @@ func main() {
 		fmt.Printf("令牌端点测试失败: %v\n", err)
 	} else {
 		fmt.Println("令牌端点测试成功")
-		fmt.Printf("访问令牌: %s\n", tokenResp.AccessToken[:20]+"...")
+		if len(tokenResp.AccessToken) > 20 {
+			fmt.Printf("访问令牌: %s\n", tokenResp.AccessToken[:20]+"...")
+		} else {
+			fmt.Printf("访问令牌: %s\n", tokenResp.AccessToken)
+		}
 		if tokenResp.IDToken != "" {
-			fmt.Printf("ID令牌: %s\n", tokenResp.IDToken[:20]+"...")
+			if len(tokenResp.IDToken) > 20 {
+				fmt.Printf("ID令牌: %s\n", tokenResp.IDToken[:20]+"...")
+			} else {
+				fmt.Printf("ID令牌: %s\n", tokenResp.IDToken)
+			}
 		}
 	}
 
@@ -137,7 +161,11 @@ func main() {
 		fmt.Printf("刷新令牌测试失败: %v\n", err)
 	} else {
 		fmt.Println("刷新令牌测试成功")
-		fmt.Printf("新访问令牌: %s\n", refreshResp.AccessToken[:20]+"...")
+		if len(refreshResp.AccessToken) > 20 {
+			fmt.Printf("新访问令牌: %s\n", refreshResp.AccessToken[:20]+"...")
+		} else {
+			fmt.Printf("新访问令牌: %s\n", refreshResp.AccessToken)
+		}
 	}
 
 	// 8. 测试用户信息端点
