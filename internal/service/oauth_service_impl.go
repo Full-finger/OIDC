@@ -156,8 +156,8 @@ func (s *oauthService) HandleAuthorizationRequest(ctx context.Context, clientID,
 		RedirectURI:         redirectURI,
 		Scopes:              s.scopesToString(scopes),
 		ExpiresAt:           time.Now().Add(10 * time.Minute), // 10分钟有效期
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
+		CodeChallenge:       s.getStringValue(codeChallenge),
+		CodeChallengeMethod: s.getStringValue(codeChallengeMethod),
 	}
 
 	// TODO: 保存到数据库
@@ -210,16 +210,16 @@ func (s *oauthService) GenerateAuthorizationCode(ctx context.Context, client *mo
 	// 生成随机授权码
 	code := s.generateRandomCode(64)
 
-	// 创建授权码实体
-	authCode := &model.AuthorizationCode{
+	// 创建授权码实体（当前仅用于演示，实际应保存到数据库）
+	_ = &model.AuthorizationCode{
 		Code:                code,
 		ClientID:            client.ClientID,
 		UserID:              userID,
 		RedirectURI:         redirectURI,
 		Scopes:              s.scopesToString(scopes),
 		ExpiresAt:           time.Now().Add(10 * time.Minute), // 10分钟有效期
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
+		CodeChallenge:       s.getStringValue(codeChallenge),
+		CodeChallengeMethod: s.getStringValue(codeChallengeMethod),
 	}
 
 	// TODO: 保存到数据库
@@ -232,9 +232,9 @@ func (s *oauthService) GenerateAuthorizationCode(ctx context.Context, client *mo
 	return code, nil
 }
 
-// ExchangeAuthorizationCode 兑换授权码获取访问令牌
+// ExchangeAuthorizationCode 用授权码换取访问令牌
 func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clientID, clientSecret, redirectURI string, codeVerifier *string) (*TokenResponse, error) {
-	// 查找并验证授权码
+	// 查找授权码
 	authCode, err := s.ValidateAuthorizationCode(ctx, code, clientID, redirectURI)
 	if err != nil {
 		return nil, fmt.Errorf("invalid authorization code: %w", err)
@@ -247,12 +247,12 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	}
 
 	// 验证PKCE（如果使用）
-	if authCode.CodeChallenge != nil && *authCode.CodeChallenge != "" {
+	if authCode.CodeChallenge != "" {
 		if codeVerifier == nil {
 			return nil, fmt.Errorf("code verifier required")
 		}
 
-		if !s.validatePKCE(*authCode.CodeChallenge, *codeVerifier, *authCode.CodeChallengeMethod) {
+		if !s.validatePKCE(authCode.CodeChallenge, *codeVerifier, authCode.CodeChallengeMethod) {
 			return nil, fmt.Errorf("invalid code verifier")
 		}
 	}
@@ -269,8 +269,8 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	// 创建刷新令牌实体
-	refreshToken := &model.RefreshToken{
+	// 创建刷新令牌实体（当前仅用于演示，实际应保存到数据库）
+	_ = &model.RefreshToken{
 		TokenHash: s.hashToken(refreshTokenStr),
 		UserID:    authCode.UserID,
 		ClientID:  client.ClientID,
@@ -279,7 +279,7 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	}
 
 	// TODO: 保存刷新令牌到数据库
-	// err = s.refreshTokenRepo.Create(ctx, refreshToken)
+	// err = s.refreshTokenRepo.Create(ctx, refreshTokenModel)
 	// if err != nil {
 	//     return nil, fmt.Errorf("failed to save refresh token: %w", err)
 	// }
@@ -287,11 +287,13 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 	// 构造响应
 	response := &TokenResponse{
 		AccessToken:  accessToken,
-		RefreshToken: refreshTokenStr,
 		TokenType:    "Bearer",
 		ExpiresIn:    3600, // 1小时
 		Scope:        authCode.Scopes,
 	}
+
+	// 如果是授权码流程，添加刷新令牌
+	response.RefreshToken = refreshTokenStr
 
 	// 检查是否包含openid scope，如果包含则生成ID Token
 	if s.containsScope(s.stringToScopes(authCode.Scopes), "openid") {
@@ -415,7 +417,7 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshToken, cli
 	}
 
 	// 创建新的刷新令牌实体
-	newRefreshToken := &model.RefreshToken{
+	_ = &model.RefreshToken{
 		TokenHash: s.hashToken(newRefreshTokenStr),
 		UserID:    refresh.UserID,
 		ClientID:  client.ClientID,
@@ -438,15 +440,14 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshToken, cli
 	// 构造响应
 	response := &TokenResponse{
 		AccessToken:  accessToken,
-		RefreshToken: newRefreshTokenStr,
 		TokenType:    "Bearer",
 		ExpiresIn:    3600, // 1小时
+		RefreshToken: newRefreshTokenStr,
 		Scope:        refresh.Scopes,
 	}
 
-	// 检查是否包含openid scope，如果包含则生成ID Token
+	// 如果scope包含openid，生成ID Token
 	if s.containsScope(s.stringToScopes(refresh.Scopes), "openid") {
-		// 生成ID Token
 		idToken, err := s.generateIDToken(refresh.UserID, client.ClientID, refresh.Scopes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate ID token: %w", err)
@@ -650,6 +651,14 @@ func (s *oauthService) stringToScopes(scopes string) []string {
 	}
 	
 	return result
+}
+
+// getStringValue 获取字符串指针的值，如果指针为nil则返回空字符串
+func (s *oauthService) getStringValue(str *string) string {
+	if str == nil {
+		return ""
+	}
+	return *str
 }
 
 // containsScope 检查scope字符串中是否包含指定的scope

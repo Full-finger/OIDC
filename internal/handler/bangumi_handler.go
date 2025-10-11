@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -160,12 +159,14 @@ func (h *BangumiHandler) SyncCollectionHandler(c *gin.Context) {
 	// 同步Bangumi收藏数据
 	err := h.bangumiService.SyncCollection(c.Request.Context(), userID.(uint))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync bangumi collections", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync bangumi collection", "details": err.Error()})
 		return
 	}
 	
 	// 返回成功响应
-	c.JSON(http.StatusOK, gin.H{"message": "bangumi collections synced successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "bangumi collection synced successfully",
+	})
 }
 
 // generateState 生成随机state参数

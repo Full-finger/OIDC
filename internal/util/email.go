@@ -3,8 +3,6 @@ package util
 import (
 	"fmt"
 	"log"
-	"math/rand"
-	"time"
 	"net/smtp"
 	"os"
 )
@@ -49,30 +47,34 @@ func (e *emailService) SendVerificationEmail(email, token string) error {
 	
 	// 邮件内容
 	verificationURL := fmt.Sprintf("http://localhost:8080/api/v1/verify?token=%s", token)
-	body := fmt.Sprintf("请点击以下链接验证您的邮箱地址：\n%s\n\n如果您没有注册我们的服务，请忽略此邮件。", verificationURL)
 	
-	// 构建邮件
+	// 构造邮件内容
 	message := fmt.Sprintf(
-		"From: %s\n"+
-			"To: %s\n"+
-			"Subject: %s\n"+
-			"\n"+
-			"%s",
-		e.senderEmail,
-		email,
-		subject,
-		body,
+		"您收到这封邮件是因为您在我们的平台上注册了账户。\n\n"+
+		"请点击以下链接验证您的邮箱地址：\n%s\n\n"+
+		"如果您没有注册我们的平台，请忽略这封邮件。\n\n"+
+		"谢谢！",
+		verificationURL,
+	)
+	
+	// 构造完整的邮件
+	fullMessage := fmt.Sprintf(
+		"To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"\r\n"+
+		"%s",
+		email, subject, message,
 	)
 	
 	// 发送邮件
 	auth := smtp.PlainAuth("", e.senderEmail, e.senderPassword, e.smtpHost)
-	err := smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.senderEmail, []string{email}, []byte(message))
+	err := smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.senderEmail, []string{email}, []byte(fullMessage))
 	if err != nil {
-		log.Printf("发送邮件失败: %v", err)
+		log.Printf("发送验证邮件失败: %v", err)
 		return err
 	}
 	
-	log.Printf("验证邮件已发送到 %s", email)
+	log.Printf("验证邮件已发送到: %s", email)
 	return nil
 }
 

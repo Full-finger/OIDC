@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"time"
 	
 	"github.com/Full-finger/OIDC/internal/model"

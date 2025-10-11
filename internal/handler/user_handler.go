@@ -4,9 +4,6 @@ import (
 	"net/http"
 	"github.com/gin-gonic/gin"
 	"github.com/Full-finger/OIDC/internal/service"
-	"github.com/Full-finger/OIDC/internal/repository"
-	"github.com/Full-finger/OIDC/internal/helper"
-	"github.com/Full-finger/OIDC/internal/util"
 )
 
 // UserHandler 用户处理器
