@@ -24,6 +24,10 @@ func SetupRouter() *gin.Engine {
 	userHandler := handler.NewUserHandler(userService)
 	verificationHandler := handler.NewVerificationHandler(userService)
 
+	// 初始化OAuth依赖
+	oauthService := service.NewOAuthService()
+	oauthHandler := handler.NewOAuthHandler(oauthService)
+
 	// 初始化限流中间件
 	rateLimiter := middleware.NewRateLimiter()
 	// 设置为每5分钟最多5次请求
@@ -38,6 +42,14 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/login", userHandler.Login)
 		// 邮箱验证路由
 		v1.GET("/verify", verificationHandler.VerifyEmail)
+	}
+
+	// OAuth 2.0 路由
+	oauth := r.Group("/oauth")
+	{
+		// 授权端点
+		oauth.GET("/authorize", oauthHandler.AuthorizeHandler)
+		// TODO: 添加其他OAuth端点，如token、userinfo等
 	}
 
 	return r
