@@ -15,6 +15,9 @@ type UserService interface {
 	// VerifyEmail 验证邮箱
 	VerifyEmail(token string) error
 
+	// ResendVerificationEmail 重新发送验证邮件
+	ResendVerificationEmail(email string) error
+
 	// AuthenticateUser 用户认证
 	AuthenticateUser(username, password string) (*model.User, error)
 

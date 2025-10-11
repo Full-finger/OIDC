@@ -35,6 +35,11 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// ResendVerificationEmailRequest 重新发送验证邮件请求结构体
+type ResendVerificationEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
 // Register 用户注册接口
 func (h *UserHandler) Register(c *gin.Context) {
 	var req RegisterRequest
@@ -77,6 +82,25 @@ func (h *UserHandler) Login(c *gin.Context) {
 			"email":    user.Email,
 			"nickname": user.Nickname,
 		},
+	})
+}
+
+// ResendVerificationEmail 重新发送验证邮件接口
+func (h *UserHandler) ResendVerificationEmail(c *gin.Context) {
+	var req ResendVerificationEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 调用服务层重新发送验证邮件
+	if err := h.userService.ResendVerificationEmail(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "验证邮件已重新发送，请检查您的邮箱",
 	})
 }
 

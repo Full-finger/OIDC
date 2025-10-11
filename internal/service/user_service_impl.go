@@ -156,6 +156,76 @@ func (s *userService) VerifyEmail(token string) error {
 	return nil
 }
 
+// ResendVerificationEmail 重新发送验证邮件
+func (s *userService) ResendVerificationEmail(email string) error {
+	// 根据邮箱获取用户
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 检查用户是否已经激活
+	if user.IsActive {
+		return errors.New("用户已经激活，无需重新发送验证邮件")
+	}
+
+	// 检查是否已存在验证令牌
+	existingToken, err := s.tokenRepo.GetByUserID(user.ID)
+	if err == nil && time.Now().Before(existingToken.ExpiresAt) {
+		// 如果存在未过期的令牌，直接使用它
+		token := existingToken.Token
+		
+		// 将邮件发送任务加入队列
+		emailItem := util.EmailQueueItem{
+			Email: user.Email,
+			Token: token,
+		}
+		
+		if err := s.emailQueue.Enqueue(emailItem); err != nil {
+			// 如果加入队列失败，记录日志但不中断流程
+			return errors.New("邮件发送任务加入队列失败")
+		}
+		
+		return nil
+	}
+
+	// 生成新的验证令牌
+	tokenString, err := s.generateVerificationToken()
+	if err != nil {
+		return errors.New("生成验证令牌失败")
+	}
+
+	// 如果存在过期的令牌，删除它
+	if existingToken != nil {
+		s.tokenRepo.Delete(existingToken.ID)
+	}
+
+	// 创建验证令牌记录
+	token := &model.VerificationToken{
+		UserID:    user.ID,
+		Token:     tokenString,
+		ExpiresAt: time.Now().Add(24 * time.Hour), // 24小时后过期
+	}
+
+	// 保存验证令牌
+	if err := s.tokenRepo.Create(token); err != nil {
+		return errors.New("保存验证令牌失败")
+	}
+
+	// 将邮件发送任务加入队列
+	emailItem := util.EmailQueueItem{
+		Email: user.Email,
+		Token: tokenString,
+	}
+	
+	if err := s.emailQueue.Enqueue(emailItem); err != nil {
+		// 如果加入队列失败，记录日志但不中断流程
+		return errors.New("邮件发送任务加入队列失败")
+	}
+
+	return nil
+}
+
 // AuthenticateUser 用户认证
 func (s *userService) AuthenticateUser(username, password string) (*model.User, error) {
 	// 根据用户名查找用户

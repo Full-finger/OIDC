@@ -34,6 +34,7 @@ func SetupRouter() *gin.Engine {
 	{
 		// 用户相关路由
 		v1.POST("/register", rateLimiter.LimitByIP(), userHandler.Register)
+		v1.POST("/resend-verification", rateLimiter.LimitByUser(), userHandler.ResendVerificationEmail)
 		v1.POST("/login", userHandler.Login)
 		// 邮箱验证路由
 		v1.GET("/verify", verificationHandler.VerifyEmail)
