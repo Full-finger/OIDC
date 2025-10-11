@@ -5,6 +5,8 @@ import (
 	"log"
 	"math/rand"
 	"time"
+	"net/smtp"
+	"os"
 )
 
 // EmailService 邮件服务接口
@@ -15,27 +17,62 @@ type EmailService interface {
 
 // emailService 邮件服务实现
 type emailService struct {
-	// 可以添加邮件服务器配置等依赖
+	smtpHost     string
+	smtpPort     string
+	senderEmail  string
+	senderPassword string
 }
 
 // NewEmailService 创建邮件服务实例
 func NewEmailService() EmailService {
-	return &emailService{}
+	return &emailService{
+		smtpHost:       getEnv("SMTP_HOST", "smtp.gmail.com"),
+		smtpPort:       getEnv("SMTP_PORT", "587"),
+		senderEmail:    getEnv("SENDER_EMAIL", "noreply@example.com"),
+		senderPassword: getEnv("SENDER_PASSWORD", ""),
+	}
+}
+
+// getEnv 获取环境变量，如果不存在则返回默认值
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }
 
 // SendVerificationEmail 发送验证邮件
 func (e *emailService) SendVerificationEmail(email, token string) error {
-	// 模拟邮件发送过程
-	// 在实际项目中，这里会连接到真实的邮件服务器发送邮件
-	fmt.Printf("发送验证邮件到: %s\n", email)
-	fmt.Printf("验证链接: http://localhost:8080/verify?token=%s\n", token)
+	// 邮件主题
+	subject := "请验证您的邮箱地址"
 	
-	// 模拟网络延迟
-	rand.Seed(time.Now().UnixNano())
-	delay := time.Duration(rand.Intn(1000)) * time.Millisecond
-	time.Sleep(delay)
+	// 邮件内容
+	verificationURL := fmt.Sprintf("http://localhost:8080/api/v1/verify?token=%s", token)
+	body := fmt.Sprintf("请点击以下链接验证您的邮箱地址：\n%s\n\n如果您没有注册我们的服务，请忽略此邮件。", verificationURL)
 	
-	log.Printf("邮件已发送到 %s，耗时 %v", email, delay)
+	// 构建邮件
+	message := fmt.Sprintf(
+		"From: %s\n"+
+			"To: %s\n"+
+			"Subject: %s\n"+
+			"\n"+
+			"%s",
+		e.senderEmail,
+		email,
+		subject,
+		body,
+	)
+	
+	// 发送邮件
+	auth := smtp.PlainAuth("", e.senderEmail, e.senderPassword, e.smtpHost)
+	err := smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.senderEmail, []string{email}, []byte(message))
+	if err != nil {
+		log.Printf("发送邮件失败: %v", err)
+		return err
+	}
+	
+	log.Printf("验证邮件已发送到 %s", email)
 	return nil
 }
 
