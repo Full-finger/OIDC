@@ -8,16 +8,37 @@ import (
 	"fmt"
 	"time"
 	"github.com/Full-finger/OIDC/internal/model"
+	"github.com/Full-finger/OIDC/internal/util"
+	"github.com/golang-jwt/jwt/v5"
 )
+
+// TokenResponse 令牌响应
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+	IDToken      string `json:"id_token,omitempty"`
+}
 
 // oauthService OAuth服务实现
 type oauthService struct {
-	// 可以添加repository依赖
+	jwtUtil util.JWTUtil
 }
 
 // NewOAuthService 创建OAuth服务实例
 func NewOAuthService() OAuthService {
-	return &oauthService{}
+	// 初始化JWT工具
+	jwtUtil, err := util.NewJWTUtil()
+	if err != nil {
+		// 如果JWT工具初始化失败，记录日志但继续运行
+		fmt.Printf("Warning: failed to initialize JWT utility: %v\n", err)
+	}
+	
+	return &oauthService{
+		jwtUtil: jwtUtil,
+	}
 }
 
 // HandleAuthorizationRequest 处理授权请求
@@ -192,6 +213,16 @@ func (s *oauthService) ExchangeAuthorizationCode(ctx context.Context, code, clie
 		Scope:        authCode.Scopes,
 	}
 
+	// 检查是否包含openid scope，如果包含则生成ID Token
+	if s.containsScope(s.stringToScopes(authCode.Scopes), "openid") {
+		// 生成ID Token
+		idToken, err := s.generateIDToken(authCode.UserID, client.ClientID, authCode.Scopes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID token: %w", err)
+		}
+		response.IDToken = idToken
+	}
+
 	// TODO: 删除已使用的授权码
 	// err = s.authorizationCodeRepo.Delete(ctx, code)
 	// if err != nil {
@@ -333,6 +364,16 @@ func (s *oauthService) RefreshAccessToken(ctx context.Context, refreshToken, cli
 		Scope:        refresh.Scopes,
 	}
 
+	// 检查是否包含openid scope，如果包含则生成ID Token
+	if s.containsScope(s.stringToScopes(refresh.Scopes), "openid") {
+		// 生成ID Token
+		idToken, err := s.generateIDToken(refresh.UserID, client.ClientID, refresh.Scopes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate ID token: %w", err)
+		}
+		response.IDToken = idToken
+	}
+
 	return response, nil
 }
 
@@ -383,6 +424,16 @@ func (s *oauthService) areScopesAllowed(requestedScopes []string, allowedScopes 
 	return true
 }
 
+// containsScope 检查scopes中是否包含指定的scope
+func (s *oauthService) containsScope(scopes []string, targetScope string) bool {
+	for _, scope := range scopes {
+		if scope == targetScope {
+			return true
+		}
+	}
+	return false
+}
+
 // generateRandomCode 生成随机授权码
 func (s *oauthService) generateRandomCode(length int) string {
 	bytes := make([]byte, length)
@@ -395,12 +446,63 @@ func (s *oauthService) generateRandomCode(length int) string {
 
 // generateAccessToken 生成访问令牌
 func (s *oauthService) generateAccessToken(userID uint, clientID, scopes string) (string, error) {
+	// 如果JWT工具可用，则生成JWT令牌
+	if s.jwtUtil != nil {
+		claims := &util.AccessTokenClaims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   fmt.Sprintf("user:%d", userID),
+				Issuer:    "OIDC",
+				IssuedAt:  jwt.NewNumericDate(time.Now()),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)), // 1小时过期
+				Audience:  []string{clientID},
+			},
+			Scope: scopes,
+		}
+		
+		return s.jwtUtil.GenerateAccessToken(claims)
+	}
+	
 	// 简化实现，实际应该生成JWT令牌
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", fmt.Errorf("failed to generate access token: %w", err)
 	}
 	return "access_" + base64.URLEncoding.EncodeToString(tokenBytes), nil
+}
+
+// generateIDToken 生成ID令牌
+func (s *oauthService) generateIDToken(userID uint, clientID, scopes string) (string, error) {
+	// 如果JWT工具不可用，返回错误
+	if s.jwtUtil == nil {
+		return "", fmt.Errorf("JWT utility not available")
+	}
+	
+	// 解析scopes
+	scopeList := s.stringToScopes(scopes)
+	
+	// 构造ID Token声明
+	claims := &util.IDTokenClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   fmt.Sprintf("user:%d", userID),
+			Issuer:    "OIDC",
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)), // 1小时过期
+			Audience:  []string{clientID},
+		},
+	}
+	
+	// 根据scope添加额外声明
+	if s.containsScope(scopeList, "profile") {
+		claims.Profile = "https://example.com/profile"
+		claims.Name = "示例用户"
+	}
+	
+	if s.containsScope(scopeList, "email") {
+		claims.Email = "user@example.com"
+	}
+	
+	// 生成ID Token
+	return s.jwtUtil.GenerateIDToken(claims)
 }
 
 // generateRefreshToken 生成刷新令牌
@@ -450,9 +552,22 @@ func (s *oauthService) stringToScopes(scopes string) []string {
 		return []string{}
 	}
 	
-	result := []string{}
-	for _, scope := range []string{scopes} {
-		result = append(result, scope)
+	// 按空格分割scopes
+	var result []string
+	start := 0
+	for i, char := range scopes {
+		if char == ' ' {
+			if start < i {
+				result = append(result, scopes[start:i])
+			}
+			start = i + 1
+		}
 	}
+	
+	// 添加最后一个scope
+	if start < len(scopes) {
+		result = append(result, scopes[start:])
+	}
+	
 	return result
 }
