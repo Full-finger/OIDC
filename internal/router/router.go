@@ -49,7 +49,9 @@ func SetupRouter() *gin.Engine {
 	{
 		// 授权端点
 		oauth.GET("/authorize", oauthHandler.AuthorizeHandler)
-		// TODO: 添加其他OAuth端点，如token、userinfo等
+		// 令牌端点
+		oauth.POST("/token", oauthHandler.TokenHandler)
+		// TODO: 添加其他OAuth端点，如userinfo等
 	}
 
 	return r

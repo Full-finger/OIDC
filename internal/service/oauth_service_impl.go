@@ -69,6 +69,20 @@ func (s *oauthService) HandleAuthorizationRequest(ctx context.Context, clientID,
 	return authCode, nil
 }
 
+// HandleTokenRequest 处理令牌请求
+func (s *oauthService) HandleTokenRequest(ctx context.Context, grantType, code, clientID, clientSecret, redirectURI string, codeVerifier *string) (*TokenResponse, error) {
+	switch grantType {
+	case "authorization_code":
+		// 使用授权码换取访问令牌
+		return s.ExchangeAuthorizationCode(ctx, code, clientID, clientSecret, redirectURI, codeVerifier)
+	case "refresh_token":
+		// 使用刷新令牌获取新的访问令牌
+		return s.RefreshAccessToken(ctx, code, clientID, clientSecret)
+	default:
+		return nil, fmt.Errorf("unsupported grant type: %s", grantType)
+	}
+}
+
 // ValidateClient 验证客户端
 func (s *oauthService) ValidateClient(ctx context.Context, clientID, clientSecret, redirectURI string) (*model.Client, error) {
 	// 查找客户端

@@ -10,6 +10,9 @@ type OAuthService interface {
 	// HandleAuthorizationRequest 处理授权请求
 	HandleAuthorizationRequest(ctx context.Context, clientID, userID, redirectURI string, scopes []string, codeChallenge, codeChallengeMethod *string) (*model.AuthorizationCode, error)
 	
+	// HandleTokenRequest 处理令牌请求
+	HandleTokenRequest(ctx context.Context, grantType, code, clientID, clientSecret, redirectURI string, codeVerifier *string) (*TokenResponse, error)
+	
 	// ValidateClient 验证客户端
 	ValidateClient(ctx context.Context, clientID, clientSecret, redirectURI string) (*model.Client, error)
 	
