@@ -36,6 +36,11 @@ func SetupRouter() *gin.Engine {
 	animeHandler := handler.NewAnimeHandler(animeService)
 	collectionHandler := handler.NewCollectionHandler(collectionService)
 
+	// 初始化Bangumi依赖
+	bangumiRepo := repository.NewBangumiRepository()
+	bangumiService := service.NewBangumiService(bangumiRepo)
+	bangumiHandler := handler.NewBangumiHandler(bangumiService)
+
 	// 初始化限流中间件
 	rateLimiter := middleware.NewRateLimiter()
 	// 设置为每5分钟最多5次请求
@@ -69,6 +74,15 @@ func SetupRouter() *gin.Engine {
 			collection.GET("/", collectionHandler.ListUserCollectionsHandler)
 			collection.GET("/status", collectionHandler.ListUserCollectionsByStatusHandler)
 			collection.GET("/favorites", collectionHandler.ListUserFavoritesHandler)
+		}
+		
+		// Bangumi绑定路由
+		bangumi := v1.Group("/bangumi")
+		{
+			bangumi.GET("/authorize", bangumiHandler.AuthorizeHandler)
+			bangumi.GET("/callback", bangumiHandler.CallbackHandler)
+			bangumi.DELETE("/unbind", bangumiHandler.UnbindHandler)
+			bangumi.GET("/account", bangumiHandler.GetBoundAccountHandler)
 		}
 	}
 
