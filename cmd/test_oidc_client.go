@@ -207,6 +207,20 @@ func testDiscoveryEndpoint() error {
 		return fmt.Errorf("Discovery端点测试失败，状态码: %d", resp.StatusCode)
 	}
 
+	// 尝试解析响应
+	var config map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return fmt.Errorf("无法解析Discovery端点响应: %v", err)
+	}
+
+	// 检查必要字段
+	requiredFields := []string{"issuer", "authorization_endpoint", "token_endpoint", "userinfo_endpoint", "jwks_uri"}
+	for _, field := range requiredFields {
+		if _, exists := config[field]; !exists {
+			return fmt.Errorf("Discovery响应缺少必要字段: %s", field)
+		}
+	}
+
 	return nil
 }
 
@@ -221,6 +235,17 @@ func testJWKSEndpoint() error {
 		return fmt.Errorf("JWKS端点测试失败，状态码: %d", resp.StatusCode)
 	}
 
+	// 尝试解析响应
+	var jwks map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return fmt.Errorf("无法解析JWKS端点响应: %v", err)
+	}
+
+	// 检查必要字段
+	if _, exists := jwks["keys"]; !exists {
+		return fmt.Errorf("JWKS响应缺少必要字段: keys")
+	}
+
 	return nil
 }
 
@@ -231,7 +256,10 @@ func testAuthorizeEndpoint(accessToken string) error {
 		},
 	}
 
-	req, err := http.NewRequest("GET", baseURL+"/oauth/authorize?response_type=code&client_id=test_client&redirect_uri=http://localhost:3000/callback&scope=openid profile email&state=test_state", nil)
+	// 构建授权请求URL
+	authURL := baseURL + "/oauth/authorize?response_type=code&client_id=test_client&redirect_uri=http://localhost:3000/callback&scope=openid profile email&state=test_state"
+	
+	req, err := http.NewRequest("GET", authURL, nil)
 	if err != nil {
 		return err
 	}
@@ -248,11 +276,20 @@ func testAuthorizeEndpoint(accessToken string) error {
 	defer resp.Body.Close()
 
 	// 授权端点应该返回重定向响应（302）或成功响应（200）
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("授权端点测试失败，状态码: %d", resp.StatusCode)
+	// 在实际应用中，如果客户端不存在，会返回400错误，这是正常的
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusOK {
+		return nil
 	}
-
-	return nil
+	
+	// 尝试读取错误信息
+	var errorResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&errorResp); err == nil {
+		if errMsg, ok := errorResp["error"].(string); ok {
+			return fmt.Errorf("授权端点测试失败，状态码: %d, 错误信息: %s", resp.StatusCode, errMsg)
+		}
+	}
+	
+	return fmt.Errorf("授权端点测试失败，状态码: %d", resp.StatusCode)
 }
 
 func testTokenEndpoint() (*TokenResponse, error) {
@@ -328,6 +365,9 @@ func testUserInfoEndpoint(accessToken string) error {
 	// 只有在访问令牌不为空时才设置Authorization头
 	if accessToken != "" && accessToken != "mock_access_token" {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
+	} else {
+		// 如果没有有效的访问令牌，测试应该失败
+		return fmt.Errorf("缺少有效的访问令牌")
 	}
 
 	client := &http.Client{}
@@ -340,6 +380,22 @@ func testUserInfoEndpoint(accessToken string) error {
 	// 如果令牌无效，应该返回401
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusUnauthorized {
 		return fmt.Errorf("用户信息端点测试失败，状态码: %d", resp.StatusCode)
+	}
+
+	// 如果是401，说明令牌无效，这在测试中是可以接受的
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil
+	}
+
+	// 尝试解析响应
+	var userInfo map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		return fmt.Errorf("无法解析用户信息端点响应: %v", err)
+	}
+
+	// 检查必要字段
+	if _, exists := userInfo["sub"]; !exists {
+		return fmt.Errorf("用户信息响应缺少必要字段: sub")
 	}
 
 	return nil

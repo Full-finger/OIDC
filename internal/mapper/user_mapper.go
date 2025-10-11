@@ -17,6 +17,4 @@ type UserMapper interface {
 	// UpdateActivationStatus 更新用户激活状态
 	UpdateActivationStatus(id uint, isActive bool) error
 	
-	// GetByID 根据ID获取用户
-	GetByID(id uint) (*model.User, error)
 }

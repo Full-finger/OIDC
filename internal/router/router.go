@@ -32,12 +32,23 @@ func SetupRouter() *gin.Engine {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic("无法连接到数据库: " + err.Error())
+		// 如果数据库连接失败，使用内存模式继续运行
+		fmt.Printf("警告: 无法连接到数据库: %v\n", err)
+		db = nil
 	}
 
 	// 初始化依赖
-	userMapper := mapper.NewUserMapper(db)
-	userRepo := repository.NewUserRepository(userMapper)
+	var userRepo repository.UserRepository
+	var userMapper mapper.UserMapper
+	
+	if db != nil {
+		userMapper = mapper.NewUserMapper(db)
+		userRepo = repository.NewUserRepository(userMapper)
+	} else {
+		// 使用内存存储
+		userRepo = repository.NewUserRepository(nil)
+	}
+	
 	userHelper := helper.NewUserHelper()
 	tokenRepo := repository.NewVerificationTokenRepository()
 	emailQueue := util.NewSimpleEmailQueue()
@@ -52,10 +63,12 @@ func SetupRouter() *gin.Engine {
 
 	// 初始化番剧收藏依赖
 	animeRepo := repository.NewAnimeRepository()
-	collectionRepo := repository.NewCollectionRepository()
 	animeService := service.NewAnimeService(animeRepo)
-	collectionService := service.NewCollectionService(collectionRepo, animeRepo)
 	animeHandler := handler.NewAnimeHandler(animeService)
+
+	// 初始化收藏依赖
+	collectionRepo := repository.NewCollectionRepository()
+	collectionService := service.NewCollectionService(collectionRepo, animeRepo)
 	collectionHandler := handler.NewCollectionHandler(collectionService)
 
 	// 初始化Bangumi依赖
@@ -63,10 +76,8 @@ func SetupRouter() *gin.Engine {
 	bangumiService := service.NewBangumiService(bangumiRepo, animeRepo, collectionRepo)
 	bangumiHandler := handler.NewBangumiHandler(bangumiService)
 
-	// 初始化限流中间件
+	// 初始化中间件
 	rateLimiter := middleware.NewRateLimiter()
-	// 设置为每5分钟最多5次请求
-	rateLimiter.SetLimit(5, 5*60)
 
 	// API v1 路由组
 	v1 := r.Group("/api/v1")
@@ -89,6 +100,7 @@ func SetupRouter() *gin.Engine {
 		
 		collection := v1.Group("/collection")
 		{
+			collection.Use(middleware.JWTAuthMiddleware())
 			collection.POST("/", collectionHandler.AddToCollectionHandler)
 			collection.GET("/:anime_id", collectionHandler.GetCollectionHandler)
 			collection.PUT("/:anime_id", collectionHandler.UpdateCollectionHandler)
@@ -101,6 +113,7 @@ func SetupRouter() *gin.Engine {
 		// Bangumi绑定路由
 		bangumi := v1.Group("/bangumi")
 		{
+			bangumi.Use(middleware.JWTAuthMiddleware())
 			bangumi.GET("/authorize", bangumiHandler.AuthorizeHandler)
 			bangumi.GET("/callback", bangumiHandler.CallbackHandler)
 			bangumi.DELETE("/unbind", bangumiHandler.UnbindHandler)

@@ -5,18 +5,6 @@ import (
 	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// UserMapper 用户映射器接口
-type UserMapper interface {
-	Save(entity interface{}) error
-	DeleteByID(id interface{}) error
-	GetByID(id uint) (*model.User, error)
-	GetAll() ([]interface{}, error)
-	Update(entity interface{}) error
-	GetByUsername(username string) (*model.User, error)
-	GetByEmail(email string) (*model.User, error)
-	UpdateActivationStatus(id uint, isActive bool) error
-}
-
 // userMapper 用户映射器实现
 type userMapper struct {
 	db *gorm.DB
@@ -34,12 +22,11 @@ func (m *userMapper) Save(entity interface{}) error {
 
 // DeleteByID 根据ID删除用户
 func (m *userMapper) DeleteByID(id interface{}) error {
-	// TODO: 实现根据ID删除用户逻辑
-	return nil
+	return m.db.Delete(&model.User{}, id).Error
 }
 
-// GetByID 根据ID获取用户
-func (m *userMapper) GetByID(id uint) (*model.User, error) {
+// GetByID 根据ID获取用户 (实现BaseMapper接口)
+func (m *userMapper) GetByID(id interface{}) (interface{}, error) {
 	var user model.User
 	if err := m.db.Where("id = ?", id).First(&user).Error; err != nil {
 		return nil, err
@@ -49,14 +36,22 @@ func (m *userMapper) GetByID(id uint) (*model.User, error) {
 
 // GetAll 获取所有用户
 func (m *userMapper) GetAll() ([]interface{}, error) {
-	// TODO: 实现获取所有用户逻辑
-	return nil, nil
+	var users []model.User
+	if err := m.db.Find(&users).Error; err != nil {
+		return nil, err
+	}
+	
+	interfaceUsers := make([]interface{}, len(users))
+	for i, user := range users {
+		interfaceUsers[i] = &user
+	}
+	
+	return interfaceUsers, nil
 }
 
 // Update 更新用户
 func (m *userMapper) Update(entity interface{}) error {
-	// TODO: 实现更新用户逻辑
-	return nil
+	return m.db.Save(entity).Error
 }
 
 // GetByUsername 根据用户名获取用户
@@ -79,6 +74,5 @@ func (m *userMapper) GetByEmail(email string) (*model.User, error) {
 
 // UpdateActivationStatus 更新用户激活状态
 func (m *userMapper) UpdateActivationStatus(id uint, isActive bool) error {
-	// TODO: 实现更新用户激活状态逻辑
-	return nil
+	return m.db.Model(&model.User{}).Where("id = ?", id).Update("is_active", isActive).Error
 }
