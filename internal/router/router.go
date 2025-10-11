@@ -1,21 +1,43 @@
 package router
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	
 	"github.com/Full-finger/OIDC/internal/handler"
 	"github.com/Full-finger/OIDC/internal/service"
 	"github.com/Full-finger/OIDC/internal/repository"
 	"github.com/Full-finger/OIDC/internal/helper"
 	"github.com/Full-finger/OIDC/internal/util"
 	"github.com/Full-finger/OIDC/internal/middleware"
+	"github.com/Full-finger/OIDC/internal/mapper"
 )
 
 // SetupRouter 设置路由
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
 
+	// 初始化数据库连接
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable TimeZone=Asia/Shanghai",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASSWORD"),
+		os.Getenv("DB_NAME"),
+		os.Getenv("DB_PORT"),
+	)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		panic("无法连接到数据库: " + err.Error())
+	}
+
 	// 初始化依赖
-	userRepo := repository.NewUserRepository()
+	userMapper := mapper.NewUserMapper(db)
+	userRepo := repository.NewUserRepository(userMapper)
 	userHelper := helper.NewUserHelper()
 	tokenRepo := repository.NewVerificationTokenRepository()
 	emailQueue := util.NewSimpleEmailQueue()

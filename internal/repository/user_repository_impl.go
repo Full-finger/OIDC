@@ -1,58 +1,71 @@
 package repository
 
 import (
+	"errors"
+
+	"github.com/Full-finger/OIDC/internal/mapper"
 	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// userRepository 用户仓储实现
+// userRepository 用户仓库实现
 type userRepository struct {
-	// 可以添加数据库连接等依赖
+	mapper mapper.UserMapper
 }
 
 // NewUserRepository 创建UserRepository实例
-func NewUserRepository() UserRepository {
-	return &userRepository{}
+func NewUserRepository(mapper mapper.UserMapper) UserRepository {
+	return &userRepository{mapper: mapper}
 }
 
 // Create 创建用户
 func (r *userRepository) Create(user *model.User) error {
-	// TODO: 实现创建用户逻辑
-	return nil
+	return r.mapper.Save(user)
 }
 
 // GetByUsername 根据用户名获取用户
 func (r *userRepository) GetByUsername(username string) (*model.User, error) {
-	// TODO: 实现根据用户名获取用户逻辑
-	return nil, nil
+	user, err := r.mapper.GetByUsername(username)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("用户不存在")
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 // GetByEmail 根据邮箱获取用户
 func (r *userRepository) GetByEmail(email string) (*model.User, error) {
-	// TODO: 实现根据邮箱获取用户逻辑
-	return nil, nil
+	user, err := r.mapper.GetByEmail(email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("用户不存在")
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 // GetByID 根据ID获取用户
 func (r *userRepository) GetByID(id uint) (*model.User, error) {
-	// TODO: 实现根据ID获取用户逻辑
-	return nil, nil
+	user, err := r.mapper.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("用户不存在")
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 // Update 更新用户信息
 func (r *userRepository) Update(user *model.User) error {
-	// 假设使用 GORM 作为 ORM
-	// db.Save() 会根据主键是否存在决定是创建还是更新
-	// 这里假设 user.ID 已经存在，执行 UPDATE 操作
+	return r.mapper.Save(user)
+}
 
-	// 示例：使用 GORM（需要先注入 *gorm.DB）
-	// if err := r.db.Model(user).Updates(user).Error; err != nil {
-	//     return err
-	// }
-	// return nil
-
-	// 当前暂无实际数据库连接，仅保留结构
-	// TODO: 实际项目中应传入 db 依赖并执行更新操作
-	return nil // 模拟成功
+// Delete 删除用户
+func (r *userRepository) Delete(id uint) error {
+	return r.mapper.Delete(id)
 }
 
 // UpdateActivationStatus 更新用户激活状态
