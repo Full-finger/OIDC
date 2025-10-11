@@ -21,6 +21,7 @@ func SetupRouter() *gin.Engine {
 	
 	userService := service.NewUserService(userRepo, userHelper, tokenRepo, emailQueue)
 	userHandler := handler.NewUserHandler(userService)
+	verificationHandler := handler.NewVerificationHandler(userService)
 
 	// API v1 路由组
 	v1 := r.Group("/api/v1")
@@ -28,6 +29,8 @@ func SetupRouter() *gin.Engine {
 		// 用户相关路由
 		v1.POST("/register", userHandler.Register)
 		v1.POST("/login", userHandler.Login)
+		// 邮箱验证路由
+		v1.GET("/verify", verificationHandler.VerifyEmail)
 	}
 
 	return r

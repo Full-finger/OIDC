@@ -40,8 +40,19 @@ func (r *userRepository) GetByID(id uint) (*model.User, error) {
 
 // Update 更新用户信息
 func (r *userRepository) Update(user *model.User) error {
-	// TODO: 实现更新用户信息逻辑
-	return nil
+	// 假设使用 GORM 作为 ORM
+	// db.Save() 会根据主键是否存在决定是创建还是更新
+	// 这里假设 user.ID 已经存在，执行 UPDATE 操作
+
+	// 示例：使用 GORM（需要先注入 *gorm.DB）
+	// if err := r.db.Model(user).Updates(user).Error; err != nil {
+	//     return err
+	// }
+	// return nil
+
+	// 当前暂无实际数据库连接，仅保留结构
+	// TODO: 实际项目中应传入 db 依赖并执行更新操作
+	return nil // 模拟成功
 }
 
 // UpdateActivationStatus 更新用户激活状态

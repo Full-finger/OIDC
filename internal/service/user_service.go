@@ -12,6 +12,9 @@ type UserService interface {
 	// ActivateUser 激活用户
 	ActivateUser(userID uint) error
 
+	// VerifyEmail 验证邮箱
+	VerifyEmail(token string) error
+
 	// AuthenticateUser 用户认证
 	AuthenticateUser(username, password string) (*model.User, error)
 

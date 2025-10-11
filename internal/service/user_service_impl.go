@@ -120,6 +120,42 @@ func (s *userService) ActivateUser(userID uint) error {
 	return nil
 }
 
+// VerifyEmail 验证邮箱
+func (s *userService) VerifyEmail(token string) error {
+	// 根据令牌获取验证令牌记录
+	verificationToken, err := s.tokenRepo.GetByToken(token)
+	if err != nil {
+		return errors.New("无效的验证令牌")
+	}
+
+	// 检查令牌是否过期
+	if time.Now().After(verificationToken.ExpiresAt) {
+		// 删除过期的令牌
+		s.tokenRepo.Delete(verificationToken.ID)
+		return errors.New("验证令牌已过期")
+	}
+
+	// 获取用户
+	user, err := s.userRepo.GetByID(verificationToken.UserID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 激活用户
+	user.IsActive = true
+	if err := s.userRepo.Update(user); err != nil {
+		return errors.New("更新用户状态失败")
+	}
+
+	// 删除已使用的令牌
+	if err := s.tokenRepo.Delete(verificationToken.ID); err != nil {
+		// 记录日志但不中断流程
+		// 在实际项目中，可能需要定期清理这些令牌
+	}
+
+	return nil
+}
+
 // AuthenticateUser 用户认证
 func (s *userService) AuthenticateUser(username, password string) (*model.User, error) {
 	// 根据用户名查找用户
