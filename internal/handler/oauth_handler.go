@@ -19,6 +19,45 @@ func NewOAuthHandler(oauthService service.OAuthService) *OAuthHandler {
 	}
 }
 
+// DiscoveryHandler 处理Discovery端点请求
+func (h *OAuthHandler) DiscoveryHandler(c *gin.Context) {
+	config, err := h.oauthService.GetOpenIDConfiguration(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get configuration"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, config)
+}
+
+// UserInfoHandler 处理用户信息端点请求
+func (h *OAuthHandler) UserInfoHandler(c *gin.Context) {
+	// 从Authorization头获取访问令牌
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+		return
+	}
+	
+	// 解析Bearer令牌
+	var accessToken string
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		accessToken = authHeader[7:] // "Bearer "之后的部分
+	} else {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization header"})
+		return
+	}
+	
+	// 获取用户信息
+	userInfo, err := h.oauthService.GetUserInfo(c.Request.Context(), accessToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid access token"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, userInfo)
+}
+
 // AuthorizeHandler 处理授权请求
 func (h *OAuthHandler) AuthorizeHandler(c *gin.Context) {
 	// 获取查询参数
@@ -167,11 +206,7 @@ func (h *OAuthHandler) parseScopes(scope string) []string {
 		return []string{}
 	}
 	
-	// 简单实现，实际应该更复杂
-	scopes := []string{}
-	// 这里应该解析空格分隔的scopes
-	// 为简化示例，我们只返回一个scope
-	scopes = append(scopes, scope)
-	
+	// 按空格分割scopes
+	scopes := strings.Fields(scope)
 	return scopes
 }

@@ -44,6 +44,9 @@ func SetupRouter() *gin.Engine {
 		v1.GET("/verify", verificationHandler.VerifyEmail)
 	}
 
+	// OIDC Discovery端点
+	r.GET("/.well-known/openid-configuration", oauthHandler.DiscoveryHandler)
+
 	// OAuth 2.0 路由
 	oauth := r.Group("/oauth")
 	{
@@ -51,7 +54,8 @@ func SetupRouter() *gin.Engine {
 		oauth.GET("/authorize", oauthHandler.AuthorizeHandler)
 		// 令牌端点
 		oauth.POST("/token", oauthHandler.TokenHandler)
-		// TODO: 添加其他OAuth端点，如userinfo等
+		// 用户信息端点
+		oauth.GET("/userinfo", oauthHandler.UserInfoHandler)
 	}
 
 	return r

@@ -13,6 +13,12 @@ type OAuthService interface {
 	// HandleTokenRequest 处理令牌请求
 	HandleTokenRequest(ctx context.Context, grantType, code, clientID, clientSecret, redirectURI string, codeVerifier *string) (*TokenResponse, error)
 	
+	// GetOpenIDConfiguration 获取OpenID配置信息
+	GetOpenIDConfiguration(ctx context.Context) (*OpenIDConfiguration, error)
+	
+	// GetUserInfo 获取用户信息
+	GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error)
+	
 	// ValidateClient 验证客户端
 	ValidateClient(ctx context.Context, clientID, clientSecret, redirectURI string) (*model.Client, error)
 	

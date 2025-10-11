@@ -22,6 +22,34 @@ type TokenResponse struct {
 	IDToken      string `json:"id_token,omitempty"`
 }
 
+// OpenIDConfiguration OpenID配置信息
+type OpenIDConfiguration struct {
+	Issuer                            string   `json:"issuer"`
+	AuthorizationEndpoint            string   `json:"authorization_endpoint"`
+	TokenEndpoint                    string   `json:"token_endpoint"`
+	UserinfoEndpoint                 string   `json:"userinfo_endpoint"`
+	JwksURI                          string   `json:"jwks_uri"`
+	ScopesSupported              []string `json:"scopes_supported"`
+	ResponseTypesSupported       []string `json:"response_types_supported"`
+	GrantTypesSupported          []string `json:"grant_types_supported"`
+	CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported"`
+	SubjectTypesSupported        []string `json:"subject_types_supported"`
+	IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
+	ClaimsSupported              []string `json:"claims_supported"`
+}
+
+// UserInfo 用户信息
+type UserInfo struct {
+	Sub           string `json:"sub"`
+	Name          string `json:"name,omitempty"`
+	Nickname      string `json:"nickname,omitempty"`
+	Profile       string `json:"profile,omitempty"`
+	Picture       string `json:"picture,omitempty"`
+	Email         string `json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified,omitempty"`
+}
+
 // oauthService OAuth服务实现
 type oauthService struct {
 	jwtUtil util.JWTUtil
@@ -39,6 +67,58 @@ func NewOAuthService() OAuthService {
 	return &oauthService{
 		jwtUtil: jwtUtil,
 	}
+}
+
+// GetOpenIDConfiguration 获取OpenID配置信息
+func (s *oauthService) GetOpenIDConfiguration(ctx context.Context) (*OpenIDConfiguration, error) {
+	config := &OpenIDConfiguration{
+		Issuer:                           "http://localhost:8080",
+		AuthorizationEndpoint:           "http://localhost:8080/oauth/authorize",
+		TokenEndpoint:                   "http://localhost:8080/oauth/token",
+		UserinfoEndpoint:                "http://localhost:8080/oauth/userinfo",
+		JwksURI:                         "http://localhost:8080/.well-known/jwks.json",
+		ScopesSupported:                 []string{"openid", "profile", "email"},
+		ResponseTypesSupported:          []string{"code"},
+		GrantTypesSupported:             []string{"authorization_code", "refresh_token"},
+		CodeChallengeMethodsSupported:   []string{"S256", "plain"},
+		SubjectTypesSupported:           []string{"public"},
+		IDTokenSigningAlgValuesSupported: []string{"RS256"},
+		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},
+		ClaimsSupported:                 []string{"sub", "name", "nickname", "profile", "picture", "email", "email_verified"},
+	}
+	
+	return config, nil
+}
+
+// GetUserInfo 获取用户信息
+func (s *oauthService) GetUserInfo(ctx context.Context, accessToken string) (*UserInfo, error) {
+	// 解析访问令牌
+	claims, err := s.jwtUtil.ParseAccessToken(accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("invalid access token: %w", err)
+	}
+	
+	// 根据scope决定返回哪些用户信息
+	// 这里简化处理，实际应该从数据库获取真实用户信息
+	userInfo := &UserInfo{
+		Sub: claims.Subject,
+	}
+	
+	// 检查scope中是否包含profile
+	if containsScope(claims.Scope, "profile") || containsScope(claims.Scope, "openid") {
+		userInfo.Name = "示例用户"
+		userInfo.Nickname = "示例昵称"
+		userInfo.Profile = "https://example.com/profile"
+		userInfo.Picture = "https://example.com/avatar.png"
+	}
+	
+	// 检查scope中是否包含email
+	if containsScope(claims.Scope, "email") {
+		userInfo.Email = "user@example.com"
+		userInfo.EmailVerified = true
+	}
+	
+	return userInfo, nil
 }
 
 // HandleAuthorizationRequest 处理授权请求
@@ -570,4 +650,32 @@ func (s *oauthService) stringToScopes(scopes string) []string {
 	}
 	
 	return result
+}
+
+// containsScope 检查scope字符串中是否包含指定的scope
+func containsScope(scopes, targetScope string) bool {
+	// 按空格分割scopes
+	scopeList := []string{}
+	start := 0
+	for i, char := range scopes {
+		if char == ' ' {
+			if start < i {
+				scopeList = append(scopeList, scopes[start:i])
+			}
+			start = i + 1
+		}
+	}
+	
+	// 添加最后一个scope
+	if start < len(scopes) {
+		scopeList = append(scopeList, scopes[start:])
+	}
+	
+	// 检查是否包含目标scope
+	for _, scope := range scopeList {
+		if scope == targetScope {
+			return true
+		}
+	}
+	return false
 }
