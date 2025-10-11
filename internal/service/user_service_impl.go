@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"golang.org/x/crypto/bcrypt"
 	"github.com/Full-finger/OIDC/internal/model"
 	"github.com/Full-finger/OIDC/internal/repository"
 	"github.com/Full-finger/OIDC/internal/helper"
@@ -22,7 +24,38 @@ func NewUserService(userRepo repository.UserRepository, userHelper helper.UserHe
 
 // RegisterUser 注册用户
 func (s *userService) RegisterUser(username, password, email, nickname string) error {
-	// TODO: 实现用户注册逻辑
+	// 检查用户是否已存在（通过用户名）
+	_, err := s.userRepo.GetByUsername(username)
+	if err == nil {
+		return errors.New("用户名已存在")
+	}
+
+	// 检查用户是否已存在（通过邮箱）
+	_, err = s.userRepo.GetByEmail(email)
+	if err == nil {
+		return errors.New("邮箱已被注册")
+	}
+
+	// 使用bcrypt哈希密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return errors.New("密码加密失败")
+	}
+
+	// 创建用户实体
+	user := &model.User{
+		Username:     username,
+		PasswordHash: string(hashedPassword),
+		Email:        email,
+		Nickname:     nickname,
+		IsActive:     false, // 用户默认未激活，需要邮箱验证
+	}
+
+	// 通过Repository创建用户
+	if err := s.userRepo.Create(user); err != nil {
+		return errors.New("用户创建失败")
+	}
+
 	return nil
 }
 
