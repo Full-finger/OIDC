@@ -252,7 +252,7 @@ func (h *CollectionHandler) UpdateCollectionHandler(c *gin.Context) {
 	}
 	
 	if req.IsFavorite != nil {
-		collection.IsFavorite = *req.IsFavorite
+		collection.Favorite = *req.IsFavorite
 	}
 	
 	// 调用服务更新收藏
