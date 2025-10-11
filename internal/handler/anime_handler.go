@@ -6,6 +6,7 @@ import (
 	
 	"github.com/gin-gonic/gin"
 	"github.com/Full-finger/OIDC/internal/service"
+	"github.com/Full-finger/OIDC/internal/model"
 )
 
 // AnimeHandler 番剧处理器
@@ -86,4 +87,63 @@ func (h *AnimeHandler) ListAnimesByStatusHandler(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, animes)
+}
+
+// CreateAnimeHandler 创建番剧
+func (h *AnimeHandler) CreateAnimeHandler(c *gin.Context) {
+	var anime model.Anime
+	if err := c.ShouldBindJSON(&anime); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	if err := h.animeService.CreateAnime(c.Request.Context(), &anime); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create anime"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, anime)
+}
+
+// UpdateAnimeHandler 更新番剧
+func (h *AnimeHandler) UpdateAnimeHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid anime id"})
+		return
+	}
+	
+	var anime model.Anime
+	if err := c.ShouldBindJSON(&anime); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// 设置番剧ID
+	anime.ID = uint(id)
+	
+	if err := h.animeService.UpdateAnime(c.Request.Context(), &anime); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update anime"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, anime)
+}
+
+// DeleteAnimeHandler 删除番剧
+func (h *AnimeHandler) DeleteAnimeHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid anime id"})
+		return
+	}
+	
+	if err := h.animeService.DeleteAnime(c.Request.Context(), uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete anime"})
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{"message": "anime deleted successfully"})
 }

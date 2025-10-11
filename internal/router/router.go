@@ -96,6 +96,10 @@ func SetupRouter() *gin.Engine {
 			anime.GET("/search", animeHandler.SearchAnimesHandler)
 			anime.GET("/list", animeHandler.ListAnimesHandler)
 			anime.GET("/status", animeHandler.ListAnimesByStatusHandler)
+			// 添加创建、更新和删除番剧的路由
+			anime.POST("/", animeHandler.CreateAnimeHandler)
+			anime.PUT("/:id", animeHandler.UpdateAnimeHandler)
+			anime.DELETE("/:id", animeHandler.DeleteAnimeHandler)
 		}
 		
 		collection := v1.Group("/collection")
