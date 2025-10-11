@@ -132,5 +132,3 @@ go run cmd/main.go
 4. Service层：业务逻辑实现
 5. Handler层：HTTP请求处理
 6. Router层：路由配置
-
-所有功能均已按照项目文档要求实现完成。
