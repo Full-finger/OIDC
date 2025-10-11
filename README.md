@@ -96,6 +96,7 @@ go run cmd/main.go
 - `GET /api/v1/collection/favorites` - 列出用户的收藏夹
 
 ### Bangumi绑定相关
+这些API尚未经过测试，不保证其可用性
 - `GET /api/v1/bangumi/authorize` - 发起Bangumi授权
 - `GET /api/v1/bangumi/callback` - Bangumi授权回调
 - `DELETE /api/v1/bangumi/unbind` - 解绑Bangumi账号
