@@ -28,6 +28,14 @@ func SetupRouter() *gin.Engine {
 	oauthService := service.NewOAuthService()
 	oauthHandler := handler.NewOAuthHandler(oauthService)
 
+	// 初始化番剧收藏依赖
+	animeRepo := repository.NewAnimeRepository()
+	collectionRepo := repository.NewCollectionRepository()
+	animeService := service.NewAnimeService(animeRepo)
+	collectionService := service.NewCollectionService(collectionRepo, animeRepo)
+	animeHandler := handler.NewAnimeHandler(animeService)
+	collectionHandler := handler.NewCollectionHandler(collectionService)
+
 	// 初始化限流中间件
 	rateLimiter := middleware.NewRateLimiter()
 	// 设置为每5分钟最多5次请求
@@ -42,6 +50,26 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/login", userHandler.Login)
 		// 邮箱验证路由
 		v1.GET("/verify", verificationHandler.VerifyEmail)
+		
+		// 番剧收藏路由
+		anime := v1.Group("/anime")
+		{
+			anime.GET("/:id", animeHandler.GetAnimeByIDHandler)
+			anime.GET("/search", animeHandler.SearchAnimesHandler)
+			anime.GET("/list", animeHandler.ListAnimesHandler)
+			anime.GET("/status", animeHandler.ListAnimesByStatusHandler)
+		}
+		
+		collection := v1.Group("/collection")
+		{
+			collection.POST("/", collectionHandler.AddToCollectionHandler)
+			collection.GET("/:anime_id", collectionHandler.GetCollectionHandler)
+			collection.PUT("/:anime_id", collectionHandler.UpdateCollectionHandler)
+			collection.DELETE("/:anime_id", collectionHandler.RemoveFromCollectionHandler)
+			collection.GET("/", collectionHandler.ListUserCollectionsHandler)
+			collection.GET("/status", collectionHandler.ListUserCollectionsByStatusHandler)
+			collection.GET("/favorites", collectionHandler.ListUserFavoritesHandler)
+		}
 	}
 
 	// OIDC Discovery端点
