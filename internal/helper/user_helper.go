@@ -1,23 +1,20 @@
-// Package helper defines the helper interfaces for the OIDC application.
 package helper
 
 import (
-	model "github.com/Full-finger/OIDC/config"
+	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// UserHelper defines the user helper interface
+// UserHelper 用户助手接口
 type UserHelper interface {
-	IBaseHelper
-
-	// ValidateUser validates user entity
+	// ValidateUser 验证用户数据
 	ValidateUser(user *model.User) error
 
-	// FormatUser formats user entity
-	FormatUser(user *model.User) *model.User
+	// HashPassword 对密码进行哈希处理
+	HashPassword(password string) (string, error)
 
-	// CanRequestEmailVerification checks if user can request email verification
-	CanRequestEmailVerification(email string) bool
+	// CheckPassword 验证密码
+	CheckPassword(hashedPassword, password string) bool
 
-	// RecordEmailVerificationRequest records email verification request
-	RecordEmailVerificationRequest(email string)
+	// GenerateAvatarURL 生成头像URL
+	GenerateAvatarURL(userID uint) string
 }

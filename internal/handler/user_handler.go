@@ -1,127 +1,132 @@
-// internal/handler/user_handler.go
-
 package handler
 
 import (
 	"net/http"
-
-	"github.com/Full-finger/OIDC/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/Full-finger/OIDC/internal/service"
 )
 
-// UserHandler handles user-related requests
+// UserHandler 用户处理器
 type UserHandler struct {
 	userService service.UserService
 }
 
-// NewUserHandler creates a new UserHandler instance
+// NewUserHandler 创建UserHandler实例
 func NewUserHandler(userService service.UserService) *UserHandler {
 	return &UserHandler{
 		userService: userService,
 	}
 }
 
-// Register handles user registration
-func (h *UserHandler) Register(c *gin.Context) {
-	// Define request structure
-	var req struct {
-		Username string `json:"username" binding:"required"`
-		Email    string `json:"email" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-
-	// Bind JSON
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Call service
-	safeUser, err := h.userService.RegisterWithVerification(c.Request.Context(), req.Username, req.Email, req.Password)
-	if err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Return success response
-	c.JSON(http.StatusCreated, safeUser)
+// RegisterRequest 用户注册请求结构体
+type RegisterRequest struct {
+	Username string `json:"username" binding:"required,min=3,max=30"`
+	Password string `json:"password" binding:"required,min=6,max=128"`
+	Email    string `json:"email" binding:"required,email"`
+	Nickname string `json:"nickname" binding:"required,max=50"`
 }
 
-// Login handles user login
-func (h *UserHandler) Login(c *gin.Context) {
-	// Define request structure
-	var req struct {
-		Email    string `json:"email" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
+// LoginRequest 用户登录请求结构体
+type LoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
 
-	// Bind JSON
+// ResendVerificationEmailRequest 重新发送验证邮件请求结构体
+type ResendVerificationEmailRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// Register 用户注册接口
+func (h *UserHandler) Register(c *gin.Context) {
+	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Call service
-	user, err := h.userService.Login(c.Request.Context(), req.Email, req.Password)
+	// 调用服务层注册用户
+	if err := h.userService.RegisterUser(req.Username, req.Password, req.Email, req.Nickname); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "用户注册成功，请检查邮箱以激活账户",
+	})
+}
+
+// Login 用户登录接口
+func (h *UserHandler) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 调用服务层认证用户
+	user, err := h.userService.AuthenticateUser(req.Username, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Generate JWT token
-	token, err := h.userService.GenerateJWT(user)
+	// 生成访问令牌
+	accessToken, err := h.userService.GenerateAccessToken(user.ID, []string{"openid", "profile", "email"})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "令牌生成失败"})
 		return
 	}
 
-	// Return success response
+	// 生成刷新令牌
+	refreshToken, err := h.userService.GenerateRefreshToken(user.ID, []string{"openid", "profile", "email"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "刷新令牌生成失败"})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user":  user.SafeUser(),
+		"message": "登录成功",
+		"user": map[string]interface{}{
+			"id":       user.ID,
+			"username": user.Username,
+			"email":    user.Email,
+			"nickname": user.Nickname,
+		},
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    3600, // 1小时
 	})
 }
 
-// GetProfile handles getting user profile
-func (h *UserHandler) GetProfile(c *gin.Context) {
-	// Get user ID from context (in a real implementation, this would come from authentication)
-	userID := int64(1) // Placeholder
-
-	// Call service
-	user, err := h.userService.GetUserByID(c.Request.Context(), userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Return success response
-	c.JSON(http.StatusOK, user.SafeUser())
-}
-
-// UpdateProfile handles updating user profile
-func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	// Get user ID from context (in a real implementation, this would come from authentication)
-	userID := int64(1) // Placeholder
-
-	// Define request structure
-	var req struct {
-		Nickname  *string `json:"nickname"`
-		AvatarURL *string `json:"avatar_url"`
-		Bio       *string `json:"bio"`
-	}
-
-	// Bind JSON
+// ResendVerificationEmail 重新发送验证邮件接口
+func (h *UserHandler) ResendVerificationEmail(c *gin.Context) {
+	var req ResendVerificationEmailRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Call service
-	if err := h.userService.UpdateProfile(c.Request.Context(), userID, req.Nickname, req.AvatarURL, req.Bio); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// 调用服务层重新发送验证邮件
+	if err := h.userService.ResendVerificationEmail(req.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Return success response
-	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": "验证邮件已重新发送，请检查您的邮箱",
+	})
+}
+
+// GetProfile 获取用户资料接口
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	// TODO: 实现获取用户资料逻辑
+	c.JSON(http.StatusOK, gin.H{"message": "GetProfile endpoint"})
+}
+
+// UpdateProfile 更新用户资料接口
+func (h *UserHandler) UpdateProfile(c *gin.Context) {
+	// TODO: 实现更新用户资料逻辑
+	c.JSON(http.StatusOK, gin.H{"message": "UpdateProfile endpoint"})
 }

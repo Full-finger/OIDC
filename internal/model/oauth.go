@@ -1,62 +1,44 @@
-// Package model defines the data structures used in the OIDC application.
 package model
 
 import (
 	"time"
 )
 
-// Client represents an OAuth client.
+// Client OAuth2客户端实体
 type Client struct {
-	ID                int64     `db:"id"`
-	ClientID          string    `db:"client_id"`
-	ClientSecretHash  string    `db:"client_secret_hash"`
-	Name              string    `db:"name"`
-	RedirectURIs      []string  `db:"redirect_uris"`
-	Scopes            []string  `db:"scopes"`
-	CreatedAt         time.Time `db:"created_at"`
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	ClientID    string    `gorm:"uniqueIndex;not null" json:"client_id"`
+	SecretHash  string    `gorm:"not null" json:"secret_hash"`
+	Name        string    `gorm:"not null" json:"name"`
+	Description string    `gorm:"type:text" json:"description"`
+	RedirectURI string    `gorm:"not null" json:"redirect_uri"`
+	Scopes      string    `gorm:"not null" json:"scopes"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// SafeClient returns a safe version of Client without sensitive information.
-func (c *Client) SafeClient() SafeClient {
-	return SafeClient{
-		ID:           c.ID,
-		ClientID:     c.ClientID,
-		Name:         c.Name,
-		RedirectURIs: c.RedirectURIs,
-		Scopes:       c.Scopes,
-		CreatedAt:    c.CreatedAt,
-	}
-}
-
-// SafeClient is a safe subset of Client for external exposure.
-type SafeClient struct {
-	ID           int64     `json:"id"`
-	ClientID     string    `json:"client_id"`
-	Name         string    `json:"name"`
-	RedirectURIs []string  `json:"redirect_uris"`
-	Scopes       []string  `json:"scopes"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-// AuthorizationCode represents an OAuth authorization code.
+// AuthorizationCode OAuth2授权码实体
 type AuthorizationCode struct {
-	Code                string    `db:"code"`
-	ClientID            string    `db:"client_id"`
-	UserID              int64     `db:"user_id"`
-	RedirectURI         string    `db:"redirect_uri"`
-	Scopes              []string  `db:"scopes"`
-	ExpiresAt           time.Time `db:"expires_at"`
-	CodeChallenge       *string   `db:"code_challenge"`
-	CodeChallengeMethod *string   `db:"code_challenge_method"`
+	ID                 uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Code               string    `gorm:"uniqueIndex;not null" json:"code"`
+	ClientID           string    `gorm:"not null" json:"client_id"`
+	UserID             uint      `gorm:"not null" json:"user_id"`
+	RedirectURI        string    `gorm:"not null" json:"redirect_uri"`
+	Scopes             string    `gorm:"not null" json:"scopes"`
+	CodeChallenge      string    `gorm:"type:text" json:"code_challenge"`
+	CodeChallengeMethod string   `gorm:"type:text" json:"code_challenge_method"`
+	ExpiresAt          time.Time `gorm:"not null" json:"expires_at"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
-// RefreshToken represents an OAuth refresh token.
+// RefreshToken OAuth2刷新令牌实体
 type RefreshToken struct {
-	ID          int64     `db:"id"`
-	TokenHash   string    `db:"token_hash"`
-	UserID      int64     `db:"user_id"`
-	ClientID    string    `db:"client_id"`
-	Scopes      []string  `db:"scopes"`
-	ExpiresAt   time.Time `db:"expires_at"`
-	RevokedAt   *time.Time `db:"revoked_at"`
+	ID          uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	TokenHash   string    `gorm:"uniqueIndex;not null" json:"token_hash"`
+	UserID      uint      `gorm:"not null" json:"user_id"`
+	ClientID    string    `gorm:"not null" json:"client_id"`
+	Scopes      string    `gorm:"type:text" json:"scopes"`
+	ExpiresAt   time.Time `gorm:"not null" json:"expires_at"`
+	RevokedAt   time.Time `gorm:"index" json:"revoked_at"`
+	CreatedAt   time.Time `json:"created_at"`
 }

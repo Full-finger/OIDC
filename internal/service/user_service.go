@@ -1,55 +1,35 @@
-// internal/service/user_service.go
-
-// Package service defines the service layer interfaces for the OIDC application.
 package service
 
 import (
-	"context"
-
-	model "github.com/Full-finger/OIDC/config"
+	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// UserService defines the user service interface
+// UserService 用户服务接口
 type UserService interface {
-	IBaseService
-	ConvertInterface
+	// RegisterUser 注册用户
+	RegisterUser(username, password, email, nickname string) error
 
-	// Register registers a new user
-	Register(ctx context.Context, username, email, password string) error
+	// ActivateUser 激活用户
+	ActivateUser(userID uint) error
 
-	// RegisterWithVerification registers a new user with email verification
-	RegisterWithVerification(ctx context.Context, username, email, password string) (*model.SafeUser, error)
+	// VerifyEmail 验证邮箱
+	VerifyEmail(token string) error
 
-	// Login logs in a user
-	Login(ctx context.Context, email, password string) (*model.User, error)
+	// ResendVerificationEmail 重新发送验证邮件
+	ResendVerificationEmail(email string) error
 
-	// GetProfile gets user profile
-	GetProfile(ctx context.Context, userID int64) (*model.SafeUser, error)
+	// AuthenticateUser 用户认证
+	AuthenticateUser(username, password string) (*model.User, error)
 
-	// UpdateProfile updates user profile
-	UpdateProfile(ctx context.Context, userID int64, nickname, avatarURL, bio *string) error
+	// GetUserByID 根据ID获取用户
+	GetUserByID(id uint) (*model.User, error)
 
-	// ChangePassword changes user password
-	ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error
+	// UpdateUserProfile 更新用户资料
+	UpdateUserProfile(userID uint, nickname, avatarURL, bio string) error
 
-	// RequestEmailVerification requests email verification
-	RequestEmailVerification(ctx context.Context, userID int64) error
+	// GenerateAccessToken 生成访问令牌
+	GenerateAccessToken(userID uint, scopes []string) (string, error)
 
-	// VerifyEmail verifies email
-	VerifyEmail(ctx context.Context, token string) error
-
-	// GenerateJWT generates JWT token
-	GenerateJWT(user *model.User) (string, error)
-
-	// ValidateJWT validates JWT token
-	ValidateJWT(tokenString string) (*model.User, error)
-
-	// GetUserByID gets a user by ID
-	GetUserByID(ctx context.Context, userID int64) (*model.User, error)
-
-	// CanRequestVerificationEmail checks if a verification email can be requested
-	CanRequestVerificationEmail(email string) bool
-
-	// UpdateLastEmailRequestTime updates the last email request time
-	UpdateLastEmailRequestTime(email string)
+	// GenerateRefreshToken 生成刷新令牌
+	GenerateRefreshToken(userID uint, scopes []string) (string, error)
 }

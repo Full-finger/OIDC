@@ -1,45 +1,67 @@
-// Package service defines the service layer interfaces for the OIDC application.
 package service
 
 import (
 	"context"
-
 	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// BangumiService defines the Bangumi service interface
+// BangumiService Bangumi服务接口
 type BangumiService interface {
-	IBaseService
-	ConvertInterface
-
-	// CreateUserBangumiBinding creates a user Bangumi binding record
-	CreateUserBangumiBinding(ctx context.Context, binding *model.UserBangumiBinding) error
-
-	// GetUserBangumiBindingByUserID gets Bangumi binding record by user ID
-	GetUserBangumiBindingByUserID(ctx context.Context, userID int64) (*model.UserBangumiBinding, error)
-
-	// GetUserBangumiBindingByBangumiUserID gets Bangumi binding record by Bangumi user ID
-	GetUserBangumiBindingByBangumiUserID(ctx context.Context, bangumiUserID int64) (*model.UserBangumiBinding, error)
-
-	// UpdateUserBangumiBinding updates a user Bangumi binding record
-	UpdateUserBangumiBinding(ctx context.Context, binding *model.UserBangumiBinding) error
-
-	// DeleteUserBangumiBinding deletes a user Bangumi binding record
-	DeleteUserBangumiBinding(ctx context.Context, userID int64) error
-
-	// IsUserBangumiBound checks if a user is bound to Bangumi
-	IsUserBangumiBound(ctx context.Context, userID int64) (bool, error)
-
-	// RefreshBangumiToken refreshes Bangumi access token
-	RefreshBangumiToken(ctx context.Context, userID int64) error
-
-	// SyncBangumiData syncs Bangumi data
-	SyncBangumiData(ctx context.Context, userID int64) (*BangumiSyncResult, error)
+	// GetAuthorizationURL 获取Bangumi授权URL
+	GetAuthorizationURL(state string) string
+	
+	// ExchangeCodeForToken 用授权码换取访问令牌
+	ExchangeCodeForToken(ctx context.Context, code string) (*BangumiTokenResponse, error)
+	
+	// RefreshToken 刷新访问令牌
+	RefreshToken(ctx context.Context, refreshToken string) (*BangumiTokenResponse, error)
+	
+	// GetUserInfo 获取Bangumi用户信息
+	GetUserInfo(ctx context.Context, accessToken string) (*BangumiUser, error)
+	
+	// BindAccount 绑定Bangumi账号
+	BindAccount(ctx context.Context, userID uint, tokenResponse *BangumiTokenResponse) error
+	
+	// UnbindAccount 解绑Bangumi账号
+	UnbindAccount(ctx context.Context, userID uint) error
+	
+	// GetBoundAccount 获取已绑定的Bangumi账号
+	GetBoundAccount(ctx context.Context, userID uint) (*model.BangumiAccount, error)
+	
+	// SyncCollection 同步Bangumi收藏数据
+	SyncCollection(ctx context.Context, userID uint) error
 }
 
-// BangumiSyncResult Bangumi data sync result
-type BangumiSyncResult struct {
-	NewAnimes          int `json:"new_animes"`
-	UpdatedCollections int `json:"updated_collections"`
-	TotalCollections   int `json:"total_collections"`
+// BangumiTokenResponse Bangumi令牌响应
+type BangumiTokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+	UserID       uint   `json:"user_id"`
+}
+
+// BangumiUser Bangumi用户信息
+type BangumiUser struct {
+	ID       uint   `json:"id"`
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
+}
+
+// BangumiCollection Bangumi收藏信息
+type BangumiCollection struct {
+	SubjectID   uint   `json:"subject_id"`
+	Name        string `json:"name"`
+	NameCN      string `json:"name_cn"`
+	Summary     string `json:"summary"`
+	Image       string `json:"image"`
+	Episodes    int    `json:"episodes"`
+	Status      string `json:"status"`
+	Rating      float64 `json:"rating"`
+	UserStatus  string `json:"user_status"`
+	UserRating  float64 `json:"user_rating"`
+	Comment     string `json:"comment"`
+	UpdatedAt   string `json:"updated_at"`
 }

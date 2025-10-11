@@ -2,169 +2,32 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"github.com/Full-finger/OIDC/internal/model"
 )
 
+// CollectionRepository 收藏仓库接口
 type CollectionRepository interface {
-	// CreateCollection 创建用户收藏
-	CreateCollection(ctx context.Context, collection *model.UserCollection) error
+	// Create 创建收藏
+	Create(ctx context.Context, collection *model.Collection) error
 	
-	// GetCollectionByID 根据ID获取用户收藏
-	GetCollectionByID(ctx context.Context, id int64) (*model.UserCollection, error)
+	// GetByID 根据ID获取收藏
+	GetByID(ctx context.Context, id uint) (*model.Collection, error)
 	
-	// GetCollectionByUserAndAnime 根据用户ID和番剧ID获取用户收藏
-	GetCollectionByUserAndAnime(ctx context.Context, userID, animeID int64) (*model.UserCollection, error)
+	// GetByUserIDAndAnimeID 根据用户ID和番剧ID获取收藏
+	GetByUserIDAndAnimeID(ctx context.Context, userID, animeID uint) (*model.Collection, error)
 	
-	// ListCollectionsByUser 获取用户的所有收藏
-	ListCollectionsByUser(ctx context.Context, userID int64) ([]*model.UserCollection, error)
+	// Update 更新收藏
+	Update(ctx context.Context, collection *model.Collection) error
 	
-	// UpdateCollection 更新用户收藏
-	UpdateCollection(ctx context.Context, collection *model.UserCollection) error
+	// DeleteByID 根据ID删除收藏
+	DeleteByID(ctx context.Context, id uint) error
 	
-	// DeleteCollection 删除用户收藏
-	DeleteCollection(ctx context.Context, id int64) error
-}
-
-type collectionRepository struct {
-	db *sql.DB
-}
-
-func NewCollectionRepository(db *sql.DB) CollectionRepository {
-	return &collectionRepository{db: db}
-}
-
-// CreateCollection 创建用户收藏
-func (r *collectionRepository) CreateCollection(ctx context.Context, collection *model.UserCollection) error {
-	query := `
-		INSERT INTO user_collections (user_id, anime_id, type, rating, comment)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, created_at, updated_at`
+	// ListByUserID 根据用户ID列出收藏
+	ListByUserID(ctx context.Context, userID uint) ([]*model.Collection, error)
 	
-	err := r.db.QueryRowContext(ctx, query,
-		collection.UserID,
-		collection.AnimeID,
-		collection.Type,
-		collection.Rating,
-		collection.Comment).Scan(&collection.ID, &collection.CreatedAt, &collection.UpdatedAt)
+	// ListByUserIDAndStatus 根据用户ID和状态列出收藏
+	ListByUserIDAndStatus(ctx context.Context, userID uint, status string) ([]*model.Collection, error)
 	
-	return err
-}
-
-// GetCollectionByID 根据ID获取用户收藏
-func (r *collectionRepository) GetCollectionByID(ctx context.Context, id int64) (*model.UserCollection, error) {
-	query := `
-		SELECT id, user_id, anime_id, type, rating, comment, created_at, updated_at
-		FROM user_collections
-		WHERE id = $1`
-	
-	collection := &model.UserCollection{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&collection.ID,
-		&collection.UserID,
-		&collection.AnimeID,
-		&collection.Type,
-		&collection.Rating,
-		&collection.Comment,
-		&collection.CreatedAt,
-		&collection.UpdatedAt,
-	)
-	
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	
-	return collection, nil
-}
-
-// GetCollectionByUserAndAnime 根据用户ID和番剧ID获取用户收藏
-func (r *collectionRepository) GetCollectionByUserAndAnime(ctx context.Context, userID, animeID int64) (*model.UserCollection, error) {
-	query := `
-		SELECT id, user_id, anime_id, type, rating, comment, created_at, updated_at
-		FROM user_collections
-		WHERE user_id = $1 AND anime_id = $2`
-	
-	collection := &model.UserCollection{}
-	err := r.db.QueryRowContext(ctx, query, userID, animeID).Scan(
-		&collection.ID,
-		&collection.UserID,
-		&collection.AnimeID,
-		&collection.Type,
-		&collection.Rating,
-		&collection.Comment,
-		&collection.CreatedAt,
-		&collection.UpdatedAt,
-	)
-	
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	
-	return collection, nil
-}
-
-// ListCollectionsByUser 获取用户的所有收藏
-func (r *collectionRepository) ListCollectionsByUser(ctx context.Context, userID int64) ([]*model.UserCollection, error) {
-	query := `
-		SELECT id, user_id, anime_id, type, rating, comment, created_at, updated_at
-		FROM user_collections
-		WHERE user_id = $1
-		ORDER BY created_at DESC`
-	
-	rows, err := r.db.QueryContext(ctx, query, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	
-	var collections []*model.UserCollection
-	for rows.Next() {
-		collection := &model.UserCollection{}
-		err := rows.Scan(
-			&collection.ID,
-			&collection.UserID,
-			&collection.AnimeID,
-			&collection.Type,
-			&collection.Rating,
-			&collection.Comment,
-			&collection.CreatedAt,
-			&collection.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		collections = append(collections, collection)
-	}
-	
-	return collections, rows.Err()
-}
-
-// UpdateCollection 更新用户收藏
-func (r *collectionRepository) UpdateCollection(ctx context.Context, collection *model.UserCollection) error {
-	query := `
-		UPDATE user_collections
-		SET type = $1, rating = $2, comment = $3, updated_at = NOW()
-		WHERE id = $4
-		RETURNING updated_at`
-	
-	err := r.db.QueryRowContext(ctx, query,
-		collection.Type,
-		collection.Rating,
-		collection.Comment,
-		collection.ID).Scan(&collection.UpdatedAt)
-	
-	return err
-}
-
-// DeleteCollection 删除用户收藏
-func (r *collectionRepository) DeleteCollection(ctx context.Context, id int64) error {
-	query := `DELETE FROM user_collections WHERE id = $1`
-	_, err := r.db.ExecContext(ctx, query, id)
-	return err
+	// ListFavorites 列出用户收藏夹
+	ListFavorites(ctx context.Context, userID uint) ([]*model.Collection, error)
 }

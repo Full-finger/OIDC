@@ -2,54 +2,122 @@ package util
 
 import (
 	"fmt"
+	"log"
 	"net/smtp"
 	"os"
 )
 
-// EmailService 邮件服务
-type EmailService struct {
+// EmailService 邮件服务接口
+type EmailService interface {
+	// SendVerificationEmail 发送验证邮件
+	SendVerificationEmail(email, token string) error
+}
+
+// emailService 邮件服务实现
+type emailService struct {
 	smtpHost     string
 	smtpPort     string
-	smtpUser     string
-	smtpPassword string
+	senderEmail  string
+	senderPassword string
 }
 
 // NewEmailService 创建邮件服务实例
-func NewEmailService(host, port, user, password string) *EmailService {
-	return &EmailService{
-		smtpHost:     host,
-		smtpPort:     port,
-		smtpUser:     user,
-		smtpPassword: password,
+func NewEmailService() EmailService {
+	return &emailService{
+		smtpHost:       getEnv("SMTP_HOST", "smtp.gmail.com"),
+		smtpPort:       getEnv("SMTP_PORT", "587"),
+		senderEmail:    getEnv("SENDER_EMAIL", "noreply@example.com"),
+		senderPassword: getEnv("SENDER_PASSWORD", ""),
 	}
+}
 
+// getEnv 获取环境变量，如果不存在则返回默认值
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }
 
 // SendVerificationEmail 发送验证邮件
-func (es *EmailService) SendVerificationEmail(to, verificationURL string) error {
-	auth := smtp.PlainAuth("", es.smtpUser, es.smtpPassword, es.smtpHost)
-
-	subject := "Bangumoe 邮箱验证"
-	body := fmt.Sprintf(`
-欢迎注册 Bangumoe！
-
-请点击以下链接验证您的邮箱：
-%s
-
-如果不是您本人操作，请忽略此邮件。
-`, verificationURL)
-
-	msg := []byte("To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
-		"\r\n" + body + "\r\n")
-
-	return smtp.SendMail(es.smtpHost+":"+es.smtpPort, auth, es.smtpUser, []string{to}, msg)
+func (e *emailService) SendVerificationEmail(email, token string) error {
+	// 邮件主题
+	subject := "请验证您的邮箱地址"
+	
+	// 邮件内容
+	verificationURL := fmt.Sprintf("http://localhost:8080/api/v1/verify?token=%s", token)
+	
+	// 构造邮件内容
+	message := fmt.Sprintf(
+		"您收到这封邮件是因为您在我们的平台上注册了账户。\n\n"+
+		"请点击以下链接验证您的邮箱地址：\n%s\n\n"+
+		"如果您没有注册我们的平台，请忽略这封邮件。\n\n"+
+		"谢谢！",
+		verificationURL,
+	)
+	
+	// 构造完整的邮件
+	fullMessage := fmt.Sprintf(
+		"To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"\r\n"+
+		"%s",
+		email, subject, message,
+	)
+	
+	// 发送邮件
+	auth := smtp.PlainAuth("", e.senderEmail, e.senderPassword, e.smtpHost)
+	err := smtp.SendMail(e.smtpHost+":"+e.smtpPort, auth, e.senderEmail, []string{email}, []byte(fullMessage))
+	if err != nil {
+		log.Printf("发送验证邮件失败: %v", err)
+		return err
+	}
+	
+	log.Printf("验证邮件已发送到: %s", email)
+	return nil
 }
 
-// GetEnv 获取环境变量，如果不存在则使用默认值
-func GetEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+// EmailQueueItem 邮件队列项
+type EmailQueueItem struct {
+	Email string `json:"email"`
+	Token string `json:"token"`
+}
+
+// EmailQueue 邮件队列接口
+type EmailQueue interface {
+	// Enqueue 将邮件任务加入队列
+	Enqueue(item EmailQueueItem) error
+	// Dequeue 从队列中取出邮件任务
+	Dequeue() (*EmailQueueItem, error)
+}
+
+// SimpleEmailQueue 简单邮件队列实现（使用内存队列模拟）
+type SimpleEmailQueue struct {
+	queue []EmailQueueItem
+}
+
+// NewSimpleEmailQueue 创建简单邮件队列实例
+func NewSimpleEmailQueue() EmailQueue {
+	return &SimpleEmailQueue{
+		queue: make([]EmailQueueItem, 0),
 	}
-	return defaultValue
+}
+
+// Enqueue 将邮件任务加入队列
+func (q *SimpleEmailQueue) Enqueue(item EmailQueueItem) error {
+	q.queue = append(q.queue, item)
+	fmt.Printf("邮件任务已加入队列: %s\n", item.Email)
+	return nil
+}
+
+// Dequeue 从队列中取出邮件任务
+func (q *SimpleEmailQueue) Dequeue() (*EmailQueueItem, error) {
+	if len(q.queue) == 0 {
+		return nil, fmt.Errorf("队列为空")
+	}
+	
+	item := q.queue[0]
+	q.queue = q.queue[1:]
+	return &item, nil
 }

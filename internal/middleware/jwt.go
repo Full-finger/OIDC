@@ -1,95 +1,58 @@
-// internal/middleware/jwt.go
-
 package middleware
 
 import (
 	"net/http"
-	"os"
+	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gin-gonic/gin"
+	"github.com/Full-finger/OIDC/internal/util"
 )
-
-// JWTClaims 自定义JWT声明
-type JWTClaims struct {
-	UserID int64    `json:"user_id"`
-	Scopes []string `json:"scopes,omitempty"`
-	jwt.RegisteredClaims
-}
 
 // JWTAuthMiddleware JWT认证中间件
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 从Authorization头获取token
+		// 从Authorization头获取访问令牌
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+			c.Abort()
 			return
 		}
-
-		// 检查Bearer前缀
-		var tokenString string
-		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		
+		// 解析Bearer令牌
+		tokenString := ""
+		if len(authHeader) > 7 && strings.HasPrefix(authHeader, "Bearer ") {
 			tokenString = authHeader[7:]
 		} else {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header must be in format 'Bearer <token>'"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization header"})
+			c.Abort()
 			return
 		}
-
-		// 解析token
-		secretKey := getEnv("JWT_SECRET", "default_secret_key")
-		token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-			return []byte(secretKey), nil
-		})
-
-		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+		
+		// 解析访问令牌
+		jwtUtil, err := util.NewJWTUtil()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize JWT utility"})
+			c.Abort()
 			return
 		}
-
-		// 检查claims
-		claims, ok := token.Claims.(*JWTClaims)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+		
+		claims, err := jwtUtil.ParseAccessToken(tokenString)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid access token"})
+			c.Abort()
 			return
 		}
-
-		// 将用户ID和scopes存储到上下文中
-		c.Set("userID", claims.UserID)
-		c.Set("scopes", claims.Scopes)
+		
+		// 从声明中提取用户ID (通过Subject字段)
+		if claims.Subject == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid access token: missing subject"})
+			c.Abort()
+			return
+		}
+		
+		// 将用户ID存储到上下文中
+		c.Set("user_id", claims.Subject)
 		c.Next()
 	}
-}
-
-// getEnv 获取环境变量，如果不存在则使用默认值
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// ContainsScope 检查scopes数组是否包含指定的scope
-func ContainsScope(scopes []string, scope string) bool {
-	for _, s := range scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
-}
-
-// ContainsOpenIDScope 检查scopes数组是否包含openid scope
-func ContainsOpenIDScope(scopes []string) bool {
-	return ContainsScope(scopes, "openid")
-}
-
-// ContainsProfileScope 检查scopes数组是否包含profile scope
-func ContainsProfileScope(scopes []string) bool {
-	return ContainsScope(scopes, "profile") || ContainsScope(scopes, "openid") // openid通常也包含基本profile信息
-}
-
-// ContainsEmailScope 检查scopes数组是否包含email scope
-func ContainsEmailScope(scopes []string) bool {
-	return ContainsScope(scopes, "email")
 }

@@ -1,113 +1,39 @@
-// Package helper implements the helper interfaces for the OIDC application.
 package helper
 
 import (
-	"fmt"
-	"regexp"
-	"sync"
-	"time"
-
-	model "github.com/Full-finger/OIDC/config"
+	"github.com/Full-finger/OIDC/internal/model"
 )
 
-// userHelper implements UserHelper interface
+// userHelper 用户助手实现
 type userHelper struct {
-	// Store last email request times (in real application, use Redis or other external storage)
-	lastEmailRequest map[string]time.Time
-	emailRequestMutex sync.Mutex
-	version string
+	// 可以添加依赖项
 }
 
-// NewUserHelper creates a new UserHelper instance
+// NewUserHelper 创建UserHelper实例
 func NewUserHelper() UserHelper {
-	return &userHelper{
-		lastEmailRequest: make(map[string]time.Time),
-		version: "1.0.0",
-	}
+	return &userHelper{}
 }
 
-// Validate validates the entity
-func (uh *userHelper) Validate(entity interface{}) error {
-	if user, ok := entity.(*model.User); ok {
-		return uh.ValidateUser(user)
-	}
-	return fmt.Errorf("invalid entity type")
-}
-
-// Format formats the entity
-func (uh *userHelper) Format(entity interface{}) interface{} {
-	if user, ok := entity.(*model.User); ok {
-		return uh.FormatUser(user)
-	}
-	return entity
-}
-
-// ValidateUser validates user entity
-func (uh *userHelper) ValidateUser(user *model.User) error {
-	if user.Username == "" {
-		return fmt.Errorf("username is required")
-	}
-
-	if len(user.Username) < 3 || len(user.Username) > 50 {
-		return fmt.Errorf("username must be between 3 and 50 characters")
-	}
-
-	if user.Email == "" {
-		return fmt.Errorf("email is required")
-	}
-
-	// Basic email validation
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	if !emailRegex.MatchString(user.Email) {
-		return fmt.Errorf("invalid email format")
-	}
-
+// ValidateUser 验证用户数据
+func (h *userHelper) ValidateUser(user *model.User) error {
+	// TODO: 实现用户数据验证逻辑
 	return nil
 }
 
-// FormatUser formats user entity
-func (uh *userHelper) FormatUser(user *model.User) *model.User {
-	// Trim whitespace from username and email
-	if user.Username != "" {
-		// In a real implementation, you might want to do more formatting
-	}
-	
-	if user.Email != "" {
-		// In a real implementation, you might want to do more formatting
-	}
-	
-	return user
+// HashPassword 对密码进行哈希处理
+func (h *userHelper) HashPassword(password string) (string, error) {
+	// TODO: 实现密码哈希逻辑
+	return "", nil
 }
 
-// CanRequestEmailVerification checks if user can request email verification
-func (uh *userHelper) CanRequestEmailVerification(email string) bool {
-	uh.emailRequestMutex.Lock()
-	defer uh.emailRequestMutex.Unlock()
-
-	lastRequest, exists := uh.lastEmailRequest[email]
-	if !exists {
-		return true
-	}
-
-	// Check if 1 minute has passed since last request
-	return time.Since(lastRequest) >= time.Minute
+// CheckPassword 验证密码
+func (h *userHelper) CheckPassword(hashedPassword, password string) bool {
+	// TODO: 实现密码验证逻辑
+	return false
 }
 
-// RecordEmailVerificationRequest records email verification request
-func (uh *userHelper) RecordEmailVerificationRequest(email string) {
-	uh.emailRequestMutex.Lock()
-	defer uh.emailRequestMutex.Unlock()
-
-	uh.lastEmailRequest[email] = time.Now()
-}
-
-// HealthCheck checks the health of the helper
-func (uh *userHelper) HealthCheck() error {
-	// Implement health check logic
-	return nil
-}
-
-// GetVersion returns the version of the helper
-func (uh *userHelper) GetVersion() string {
-	return uh.version
+// GenerateAvatarURL 生成头像URL
+func (h *userHelper) GenerateAvatarURL(userID uint) string {
+	// TODO: 实现头像URL生成逻辑
+	return ""
 }

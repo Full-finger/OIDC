@@ -1,336 +1,370 @@
-// Package service implements the service layer interfaces for the OIDC application.
 package service
 
 import (
-	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/Full-finger/OIDC/internal/helper"
-	"github.com/Full-finger/OIDC/internal/mapper"
-	model "github.com/Full-finger/OIDC/config"
+	"github.com/Full-finger/OIDC/internal/model"
+	"github.com/Full-finger/OIDC/internal/repository"
+	"github.com/Full-finger/OIDC/internal/util"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// userService implements UserService interface
+// userService 用户服务实现
 type userService struct {
-	userMapper mapper.UserMapper
+	userRepo   repository.UserRepository
 	userHelper helper.UserHelper
-	version    string
+	tokenRepo  repository.VerificationTokenRepository
+	emailQueue util.EmailQueue // 使用util包中的接口类型
 }
 
-// NewUserService creates a new UserService instance
+
+// NewUserService 创建UserService实例
 func NewUserService(
-	userMapper mapper.UserMapper,
+	userRepo repository.UserRepository,
 	userHelper helper.UserHelper,
+	tokenRepo repository.VerificationTokenRepository,
+	emailQueue util.EmailQueue,
 ) UserService {
 	return &userService{
-		userMapper: userMapper,
+		userRepo:   userRepo,
 		userHelper: userHelper,
-		version:    "1.0.0",
+		tokenRepo:  tokenRepo,
+		emailQueue: emailQueue,
 	}
 }
 
-// GetDomainHelper returns the domain helper
-func (us *userService) GetDomainHelper() interface{} {
-	return us.userHelper
+// generateVerificationToken 生成验证令牌
+func (s *userService) generateVerificationToken() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
 }
 
-// GetDomainMapper returns the domain mapper
-func (us *userService) GetDomainMapper() interface{} {
-	return us.userMapper
-}
-
-// ConvertToEntity converts DTO to entity
-func (us *userService) ConvertToEntity(dto interface{}) interface{} {
-	// In a real implementation, you would convert DTO to entity
-	return dto
-}
-
-// ConvertToDTO converts entity to DTO
-func (us *userService) ConvertToDTO(entity interface{}) interface{} {
-	// In a real implementation, you would convert entity to DTO
-	return entity
-}
-
-// Register registers a new user
-func (us *userService) Register(ctx context.Context, username, email, password string) error {
-	// Check if user already exists
-	existingUser, err := us.userMapper.GetUserByEmail(ctx, email)
-	if err != nil {
-		return fmt.Errorf("failed to check existing user: %w", err)
+// RegisterUser 注册用户
+func (s *userService) RegisterUser(username, password, email, nickname string) error {
+	// 检查用户是否已存在（通过用户名）
+	_, err := s.userRepo.GetByUsername(username)
+	if err == nil {
+		return errors.New("用户名已存在")
 	}
 
-	if existingUser != nil {
-		return fmt.Errorf("user with email %s already exists", email)
+	// 检查用户是否已存在（通过邮箱）
+	_, err = s.userRepo.GetByEmail(email)
+	if err == nil {
+		return errors.New("邮箱已被注册")
 	}
 
-	// Hash password
+	// 使用bcrypt哈希密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
+		return errors.New("密码加密失败")
 	}
 
-	// Create user
+	// 检查是否跳过邮箱验证
+	skipEmailVerification := os.Getenv("SKIP_EMAIL_VERIFICATION") == "true"
+	
+	// 创建用户实体
 	user := &model.User{
 		Username:     username,
-		Email:        email,
 		PasswordHash: string(hashedPassword),
+		Email:        email,
+		Nickname:     nickname,
+		IsActive:     skipEmailVerification, // 如果跳过邮箱验证，则用户默认激活
 	}
 
-	if err := us.userMapper.CreateUser(ctx, user); err != nil {
-		return fmt.Errorf("failed to create user: %w", err)
+	// 通过Repository创建用户
+	if err := s.userRepo.Create(user); err != nil {
+		return errors.New("用户创建失败")
+	}
+
+	// 如果跳过邮箱验证，则直接返回
+	if skipEmailVerification {
+		return nil
+	}
+
+	// 生成验证令牌
+	tokenString, err := s.generateVerificationToken()
+	if err != nil {
+		return errors.New("生成验证令牌失败")
+	}
+
+	// 创建验证令牌记录
+	token := &model.VerificationToken{
+		UserID:    user.ID,
+		Token:     tokenString,
+		ExpiresAt: time.Now().Add(24 * time.Hour), // 24小时后过期
+	}
+
+	// 保存验证令牌
+	if err := s.tokenRepo.Create(token); err != nil {
+		return errors.New("保存验证令牌失败")
+	}
+
+	// 将邮件发送任务加入队列
+	emailItem := util.EmailQueueItem{
+		Email: user.Email,
+		Token: tokenString,
+	}
+	
+	if err := s.emailQueue.Enqueue(emailItem); err != nil {
+		return errors.New("邮件发送任务加入队列失败")
 	}
 
 	return nil
 }
 
-// RegisterWithVerification registers a new user with email verification
-func (us *userService) RegisterWithVerification(ctx context.Context, username, email, password string) (*model.SafeUser, error) {
-	// Check if user already exists
-	existingUser, err := us.userMapper.GetUserByEmail(ctx, email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check existing user: %w", err)
+// ActivateUser 激活用户
+func (s *userService) ActivateUser(userID uint) error {
+	// 更新用户激活状态
+	if err := s.userRepo.UpdateActivationStatus(userID, true); err != nil {
+		return errors.New("更新用户激活状态失败")
 	}
-
-	if existingUser != nil {
-		return nil, fmt.Errorf("user with email %s already exists", email)
+	
+	// 删除验证令牌
+	// 先根据用户ID获取令牌
+	token, err := s.tokenRepo.GetByUserID(userID)
+	if err == nil && token != nil {
+		// 如果令牌存在，则删除它
+		if err := s.tokenRepo.DeleteByToken(token.Token); err != nil {
+			// 记录日志但不中断激活流程
+			// 在实际项目中，可能需要更完善的错误处理机制
+		}
 	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	// Create user
-	user := &model.User{
-		Username:     username,
-		Email:        email,
-		PasswordHash: string(hashedPassword),
-	}
-
-	if err := us.userMapper.CreateUser(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Return safe user
-	safeUser := user.SafeUser()
-	return &safeUser, nil
+	
+	return nil
 }
 
-// Login logs in a user
-func (us *userService) Login(ctx context.Context, email, password string) (*model.User, error) {
-	// Get user by email
-	user, err := us.userMapper.GetUserByEmail(ctx, email)
+// VerifyEmail 验证邮箱
+func (s *userService) VerifyEmail(token string) error {
+	// 根据令牌获取验证令牌记录
+	verificationToken, err := s.tokenRepo.GetByToken(token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return errors.New("无效的验证令牌")
 	}
 
-	if user == nil {
-		return nil, fmt.Errorf("invalid email or password")
+	// 检查令牌是否过期
+	if time.Now().After(verificationToken.ExpiresAt) {
+		// 删除过期的令牌
+		s.tokenRepo.Delete(verificationToken.ID)
+		return errors.New("验证令牌已过期")
 	}
 
-	// Check password
+	// 获取用户
+	user, err := s.userRepo.GetByID(verificationToken.UserID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 激活用户
+	user.IsActive = true
+	if err := s.userRepo.Update(user); err != nil {
+		return errors.New("更新用户状态失败")
+	}
+
+	// 删除已使用的令牌
+	if err := s.tokenRepo.Delete(verificationToken.ID); err != nil {
+		// 记录日志但不中断流程
+		// 在实际项目中，可能需要定期清理这些令牌
+	}
+
+	return nil
+}
+
+// ResendVerificationEmail 重新发送验证邮件
+func (s *userService) ResendVerificationEmail(email string) error {
+	// 查找用户
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	// 检查用户是否已激活
+	if user.IsActive {
+		return errors.New("用户已激活，无需重新发送验证邮件")
+	}
+
+	// 生成新的验证令牌
+	tokenString, err := s.generateVerificationToken()
+	if err != nil {
+		return errors.New("生成验证令牌失败")
+	}
+
+	// 创建验证令牌记录
+	token := &model.VerificationToken{
+		UserID:    user.ID,
+		Token:     tokenString,
+		ExpiresAt: time.Now().Add(24 * time.Hour), // 24小时后过期
+	}
+
+	// 保存验证令牌
+	if err := s.tokenRepo.Create(token); err != nil {
+		return errors.New("保存验证令牌失败")
+	}
+
+	// 将邮件发送任务加入队列
+	emailItem := util.EmailQueueItem{
+		Email: user.Email,
+		Token: tokenString,
+	}
+	
+	if err := s.emailQueue.Enqueue(emailItem); err != nil {
+		return errors.New("邮件发送任务加入队列失败")
+	}
+
+	return nil
+}
+
+// AuthenticateUser 用户认证
+func (s *userService) AuthenticateUser(username, password string) (*model.User, error) {
+	// 根据用户名查找用户
+	user, err := s.userRepo.GetByUsername(username)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// 检查是否跳过邮箱验证
+	skipEmailVerification := os.Getenv("SKIP_EMAIL_VERIFICATION") == "true"
+	
+	// 检查用户是否已激活（除非跳过邮箱验证）
+	if !skipEmailVerification && !user.IsActive {
+		return nil, errors.New("用户未激活，请先验证邮箱")
+	}
+
+	// 比对密码哈希
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return nil, fmt.Errorf("invalid email or password")
+		return nil, errors.New("密码错误")
 	}
 
+	// 认证成功，返回用户信息
 	return user, nil
 }
 
-// GetProfile gets user profile
-func (us *userService) GetProfile(ctx context.Context, userID int64) (*model.SafeUser, error) {
-	// Get user by ID
-	user, err := us.userMapper.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-
-	if user == nil {
-		return nil, fmt.Errorf("user not found")
-	}
-
-	// Return safe user
-	safeUser := user.SafeUser()
-	return &safeUser, nil
+// GetUserByID 根据ID获取用户
+func (s *userService) GetUserByID(id uint) (*model.User, error) {
+	return s.userRepo.GetByID(id)
 }
 
-// UpdateProfile updates user profile
-func (us *userService) UpdateProfile(ctx context.Context, userID int64, nickname, avatarURL, bio *string) error {
-	// Get user by ID
-	user, err := us.userMapper.GetUserByID(ctx, userID)
+// UpdateUserProfile 更新用户资料
+func (s *userService) UpdateUserProfile(userID uint, nickname, avatarURL, bio string) error {
+	// 查找用户
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
+		return errors.New("用户不存在")
 	}
 
-	if user == nil {
-		return fmt.Errorf("user not found")
-	}
+	// 更新用户资料
+	user.Nickname = nickname
+	user.AvatarURL = avatarURL
+	user.Bio = bio
 
-	// Update user fields
-	if nickname != nil {
-		user.Nickname = nickname
-	}
-	if avatarURL != nil {
-		user.AvatarURL = avatarURL
-	}
-	if bio != nil {
-		user.Bio = bio
-	}
-
-	// Save updated user
-	if err := us.userMapper.UpdateUser(ctx, user); err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
+	// 保存更新
+	if err := s.userRepo.Update(user); err != nil {
+		return errors.New("更新用户资料失败")
 	}
 
 	return nil
 }
 
-// ChangePassword changes user password
-func (us *userService) ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error {
-	// Get user by ID
-	user, err := us.userMapper.GetUserByID(ctx, userID)
+// GenerateAccessToken 生成访问令牌
+func (s *userService) GenerateAccessToken(userID uint, scopes []string) (string, error) {
+	// 获取用户信息
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
+		return "", errors.New("用户不存在")
 	}
 
-	if user == nil {
-		return fmt.Errorf("user not found")
-	}
-
-	// Check old password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
-		return fmt.Errorf("invalid old password")
-	}
-
-	// Hash new password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash new password: %w", err)
-	}
-
-	// Update password
-	user.PasswordHash = string(hashedPassword)
-	if err := us.userMapper.UpdateUser(ctx, user); err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
-	}
-
-	return nil
-}
-
-// RequestEmailVerification requests email verification
-func (us *userService) RequestEmailVerification(ctx context.Context, userID int64) error {
-	// Get user by ID
-	user, err := us.userMapper.GetUserByID(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
-	}
-
-	if user == nil {
-		return fmt.Errorf("user not found")
-	}
-
-	if user.EmailVerified {
-		return fmt.Errorf("email already verified")
-	}
-
-	// Check request frequency limit
-	if !us.userHelper.CanRequestEmailVerification(user.Email) {
-		return fmt.Errorf("please wait before requesting another verification email")
-	}
-
-	// Record email verification request
-	us.userHelper.RecordEmailVerificationRequest(user.Email)
-
-	// In a real implementation, you would generate a verification token and send the verification email
-	// token, err := utils.GenerateVerificationToken(user.ID)
-	// if err != nil {
-	//     return fmt.Errorf("failed to generate verification token: %w", err)
-	// }
-	// sendVerificationEmail(user.Email, token)
-
-	return nil
-}
-
-// VerifyEmail verifies email
-func (us *userService) VerifyEmail(ctx context.Context, token string) error {
-	// In a real implementation, you would verify the email with the token
-	return nil
-}
-
-// GenerateJWT generates JWT token
-func (us *userService) GenerateJWT(user *model.User) (string, error) {
-	// Create token
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID,
-		"email":   user.Email,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	// 生成JWT令牌
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub":   fmt.Sprintf("%d", user.ID),
+		"iss":   "OIDC", // 应该从配置中获取
+		"aud":   "test_client",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"iat":   time.Now().Unix(),
+		"scope": strings.Join(scopes, " "),
+		"preferred_username": user.Username,
+		"email":              user.Email,
+		"name":               user.Nickname,
 	})
 
-	// Sign token with a secret key (in a real app, use a secure secret)
-	secretKey := "your-secret-key" // This should be loaded from environment variables
-	return token.SignedString([]byte(secretKey))
-}
-
-// ValidateJWT validates JWT token
-func (us *userService) ValidateJWT(tokenString string) (*model.User, error) {
-	// Parse token
-	secretKey := "your-secret-key" // This should be loaded from environment variables
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secretKey), nil
-	})
-
+	// 获取私钥路径
+	privateKeyPath := os.Getenv("JWT_PRIVATE_KEY_PATH")
+	if privateKeyPath == "" {
+		privateKeyPath = "config/private_key.pem"
+	}
+	
+	// 读取私钥文件
+	privateKeyData, err := os.ReadFile(privateKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return "", errors.New("读取私钥文件失败")
+	}
+	
+	// 解析私钥
+	privateKey, err := s.parsePrivateKey(privateKeyData)
+	if err != nil {
+		return "", errors.New("解析私钥失败")
 	}
 
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+	// 签名令牌
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", errors.New("令牌签名失败")
 	}
 
-	// Extract claims
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract claims")
-	}
-
-	// Create a minimal user object with the information from the token
-	userIDFloat, ok := claims["user_id"].(float64)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract user ID from token")
-	}
-
-	email, ok := claims["email"].(string)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract email from token")
-	}
-
-	user := &model.User{
-		ID:    int64(userIDFloat),
-		Email: email,
-	}
-
-	return user, nil
+	return tokenString, nil
 }
 
-// GetVersion returns the version of the service
-func (us *userService) GetVersion() string {
-	return us.version
+// GenerateRefreshToken 生成刷新令牌
+func (s *userService) GenerateRefreshToken(userID uint, scopes []string) (string, error) {
+	// 生成随机刷新令牌
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", errors.New("生成刷新令牌失败")
+	}
+	
+	refreshToken := base64.URLEncoding.EncodeToString(bytes)
+	
+	// TODO: 在实际应用中，应该将刷新令牌存储到数据库中
+	// 这里为了简化示例，直接返回生成的令牌
+	
+	return refreshToken, nil
 }
 
-// GetUserByID gets a user by ID
-func (us *userService) GetUserByID(ctx context.Context, userID int64) (*model.User, error) {
-	return us.userMapper.GetUserByID(ctx, userID)
-}
-
-// CanRequestVerificationEmail checks if a verification email can be requested
-func (us *userService) CanRequestVerificationEmail(email string) bool {
-	return us.userHelper.CanRequestEmailVerification(email)
-}
-
-// UpdateLastEmailRequestTime updates the last email request time
-func (us *userService) UpdateLastEmailRequestTime(email string) {
-	us.userHelper.RecordEmailVerificationRequest(email)
+// parsePrivateKey 解析私钥
+func (s *userService) parsePrivateKey(data []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block containing private key")
+	}
+	
+	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		// 尝试解析PKCS8格式
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+		
+		rsaKey, ok := key.(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("not an RSA private key")
+		}
+		
+		return rsaKey, nil
+	}
+	
+	return privateKey, nil
 }
