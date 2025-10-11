@@ -38,7 +38,7 @@ func SetupRouter() *gin.Engine {
 
 	// 初始化Bangumi依赖
 	bangumiRepo := repository.NewBangumiRepository()
-	bangumiService := service.NewBangumiService(bangumiRepo)
+	bangumiService := service.NewBangumiService(bangumiRepo, animeRepo, collectionRepo)
 	bangumiHandler := handler.NewBangumiHandler(bangumiService)
 
 	// 初始化限流中间件
@@ -83,6 +83,7 @@ func SetupRouter() *gin.Engine {
 			bangumi.GET("/callback", bangumiHandler.CallbackHandler)
 			bangumi.DELETE("/unbind", bangumiHandler.UnbindHandler)
 			bangumi.GET("/account", bangumiHandler.GetBoundAccountHandler)
+			bangumi.POST("/sync", bangumiHandler.SyncCollectionHandler)
 		}
 	}
 

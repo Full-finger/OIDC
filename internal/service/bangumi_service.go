@@ -27,6 +27,9 @@ type BangumiService interface {
 	
 	// GetBoundAccount 获取已绑定的Bangumi账号
 	GetBoundAccount(ctx context.Context, userID uint) (*model.BangumiAccount, error)
+	
+	// SyncCollection 同步Bangumi收藏数据
+	SyncCollection(ctx context.Context, userID uint) error
 }
 
 // BangumiTokenResponse Bangumi令牌响应
@@ -45,4 +48,20 @@ type BangumiUser struct {
 	Username string `json:"username"`
 	Nickname string `json:"nickname"`
 	Avatar   string `json:"avatar"`
+}
+
+// BangumiCollection Bangumi收藏信息
+type BangumiCollection struct {
+	SubjectID   uint   `json:"subject_id"`
+	Name        string `json:"name"`
+	NameCN      string `json:"name_cn"`
+	Summary     string `json:"summary"`
+	Image       string `json:"image"`
+	Episodes    int    `json:"episodes"`
+	Status      string `json:"status"`
+	Rating      float64 `json:"rating"`
+	UserStatus  string `json:"user_status"`
+	UserRating  float64 `json:"user_rating"`
+	Comment     string `json:"comment"`
+	UpdatedAt   string `json:"updated_at"`
 }

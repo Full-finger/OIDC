@@ -148,6 +148,26 @@ func (h *BangumiHandler) GetBoundAccountHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// SyncCollectionHandler 同步Bangumi收藏数据
+func (h *BangumiHandler) SyncCollectionHandler(c *gin.Context) {
+	// 从上下文中获取用户ID
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+		return
+	}
+	
+	// 同步Bangumi收藏数据
+	err := h.bangumiService.SyncCollection(c.Request.Context(), userID.(uint))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to sync bangumi collections", "details": err.Error()})
+		return
+	}
+	
+	// 返回成功响应
+	c.JSON(http.StatusOK, gin.H{"message": "bangumi collections synced successfully"})
+}
+
 // generateState 生成随机state参数
 func (h *BangumiHandler) generateState() string {
 	bytes := make([]byte, 32)
