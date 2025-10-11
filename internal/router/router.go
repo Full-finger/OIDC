@@ -111,6 +111,7 @@ func SetupRouter() *gin.Engine {
 
 	// OIDC Discovery端点
 	r.GET("/.well-known/openid-configuration", oauthHandler.DiscoveryHandler)
+	r.GET("/jwks.json", oauthHandler.JWKSHandler)
 
 	// OAuth 2.0 路由
 	oauth := r.Group("/oauth")

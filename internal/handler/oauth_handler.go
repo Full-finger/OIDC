@@ -40,22 +40,32 @@ func (h *OAuthHandler) UserInfoHandler(c *gin.Context) {
 	}
 	
 	// 解析Bearer令牌
-	var accessToken string
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		accessToken = authHeader[7:] // "Bearer "之后的部分
+	tokenString := ""
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		tokenString = authHeader[7:]
 	} else {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization header"})
 		return
 	}
 	
 	// 获取用户信息
-	userInfo, err := h.oauthService.GetUserInfo(c.Request.Context(), accessToken)
+	userInfo, err := h.oauthService.GetUserInfo(c.Request.Context(), tokenString)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid access token"})
 		return
 	}
 	
 	c.JSON(http.StatusOK, userInfo)
+}
+
+// JWKSHandler 处理JWKS端点请求
+func (h *OAuthHandler) JWKSHandler(c *gin.Context) {
+	// 返回空的JWKS结构，实际应该包含公钥信息
+	jwks := map[string]interface{}{
+		"keys": []interface{}{},
+	}
+	
+	c.JSON(http.StatusOK, jwks)
 }
 
 // AuthorizeHandler 处理授权请求
