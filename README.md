@@ -77,12 +77,16 @@ go run cmd/main.go
 - `POST /oauth/token` - 令牌端点
 - `GET /oauth/userinfo` - 用户信息端点
 
-### 番剧收藏相关
+### 番剧相关
 - `GET /api/v1/anime/:id` - 获取番剧详情
 - `GET /api/v1/anime/search` - 搜索番剧
 - `GET /api/v1/anime/list` - 列出所有番剧
 - `GET /api/v1/anime/status` - 根据状态列出番剧
+- `POST /api/v1/anime/` - 创建番剧
+- `PUT /api/v1/anime/:id` - 更新番剧
+- `DELETE /api/v1/anime/:id` - 删除番剧
 
+### 收藏相关
 - `POST /api/v1/collection/` - 添加番剧到收藏
 - `GET /api/v1/collection/:anime_id` - 获取用户对某个番剧的收藏
 - `PUT /api/v1/collection/:anime_id` - 更新收藏信息
@@ -97,6 +101,19 @@ go run cmd/main.go
 - `DELETE /api/v1/bangumi/unbind` - 解绑Bangumi账号
 - `GET /api/v1/bangumi/account` - 获取已绑定的Bangumi账号信息
 - `POST /api/v1/bangumi/sync` - 同步Bangumi收藏数据
+
+## 测试
+
+项目包含多种测试脚本用于验证各功能模块：
+
+1. `go run cmd/test_oidc_client.go` - 测试OIDC客户端完整流程
+2. `go run cmd/test_anime_collection.go` - 测试番剧和收藏功能
+3. `go run cmd/test_anime_crud.go` - 测试番剧增删改查功能
+
+注意：运行测试前需要：
+1. 确保服务已启动
+2. 生成JWT密钥对（`go run scripts/generate_jwt_keys.go`）
+3. 数据库服务正常运行
 
 ## 环境变量配置
 
