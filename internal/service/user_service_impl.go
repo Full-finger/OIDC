@@ -67,8 +67,24 @@ func (s *userService) ActivateUser(userID uint) error {
 
 // AuthenticateUser 用户认证
 func (s *userService) AuthenticateUser(username, password string) (*model.User, error) {
-	// TODO: 实现用户认证逻辑
-	return nil, nil
+	// 根据用户名查找用户
+	user, err := s.userRepo.GetByUsername(username)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// 检查用户是否已激活
+	if !user.IsActive {
+		return nil, errors.New("用户未激活，请先验证邮箱")
+	}
+
+	// 比对密码哈希
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return nil, errors.New("密码错误")
+	}
+
+	// 认证成功，返回用户信息
+	return user, nil
 }
 
 // GetUserByID 根据ID获取用户
